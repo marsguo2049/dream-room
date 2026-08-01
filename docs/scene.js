@@ -1304,8 +1304,8 @@ function setWalkPose(rig, clock, amount = 1) {
     rig.rightArm.pivot.rotation.z = -0.075;
     // Negative flexes the forearm forward. Positive rotation about the elbow's
     // local X sends it backward, which left the elbows pointing at the viewer.
-    rig.leftArm.lower.rotation.x = -(0.16 + leftLift * 0.24) * amount;
-    rig.rightArm.lower.rotation.x = -(0.16 + rightLift * 0.24) * amount;
+    rig.leftArm.lower.rotation.x = -(0.3 + leftLift * 0.26) * amount;
+    rig.rightArm.lower.rotation.x = -(0.3 + rightLift * 0.26) * amount;
     rig.leftLeg.pivot.rotation.x = -stride * 0.52 * amount;
     rig.rightLeg.pivot.rotation.x = stride * 0.52 * amount;
     rig.leftLeg.lower.rotation.x = leftLift * 0.72 * amount;
@@ -1676,8 +1676,12 @@ export function createDreamRoom(mount, handlers) {
             girl.torso.scale.y = 1 + Math.sin(elapsed * 2.05) * 0.009;
             girl.leftArm.pivot.rotation.z = 0.08;
             girl.rightArm.pivot.rotation.z = -0.08;
-            girl.leftArm.lower.rotation.x = -0.13;
-            girl.rightArm.lower.rotation.x = -0.13;
+            // Arms rest a little in front of the body, with enough elbow flexion to
+            // actually read as a bend. At 7° the forearm still looked like a tube.
+            girl.leftArm.pivot.rotation.x = -0.1;
+            girl.rightArm.pivot.rotation.x = -0.1;
+            girl.leftArm.lower.rotation.x = -0.36;
+            girl.rightArm.lower.rotation.x = -0.36;
         }
         if (state === "walk-to") {
             const p = ease(Math.min(1, phase / walkSeconds));
