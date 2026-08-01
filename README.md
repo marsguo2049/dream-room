@@ -6,6 +6,10 @@ a piece of the room to watch the girl live out that part of the dream: climb the
 tree and swing a 360 off the branch, open the door and dive into the sea beyond
 it, sit down and play a short melody, or settle at the desk to read and write.
 
+The sea-facing wall is glazed floor to ceiling, so the water is in the room
+whether or not the door is open, and there is a half-built pile of LEGO left on
+the piano lid.
+
 **Live demo:** <https://moltpany.github.io/dream-room/>
 
 Every surface is generated at runtime. Nothing is loaded from an external asset

@@ -469,6 +469,67 @@ function addContactShadow(
   return shadow;
 }
 
+/**
+ * The sea-facing wall, glazed floor to ceiling.
+ *
+ * Slim posts and one transom carry it, so what closes the room on that side is
+ * the view rather than plaster. The panes do not write depth and cast no
+ * shadow: a transparent material rendered into the shadow map would throw a
+ * solid rectangle across the floor.
+ */
+function buildSeaWindow(scene: THREE.Scene, palette: Palette) {
+  const WALL_Z = -5.35;
+  const LEFT = -6.35;
+  const RIGHT = 3.16;
+  const HEAD = 5.6;
+  const TRANSOM = 3.7;
+  const BAYS = 4;
+  const DEPTH = 0.18;
+  const POST = 0.11;
+
+  const width = RIGHT - LEFT;
+  const centre = (LEFT + RIGHT) / 2;
+  const frame = palette.trim;
+
+  const glass = new THREE.MeshPhysicalMaterial({
+    color: 0xdaeeee,
+    roughness: 0.04,
+    metalness: 0,
+    ior: 1.5,
+    transparent: true,
+    opacity: 0.15,
+    clearcoat: 1,
+    clearcoatRoughness: 0.03,
+    envMapIntensity: 1.9,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  addBox(scene, [width, 0.2, DEPTH], [centre, HEAD - 0.1, WALL_Z], frame, 0.02);
+  addBox(scene, [width, 0.11, DEPTH], [centre, 0.055, WALL_Z], frame, 0.02);
+  addBox(scene, [width, 0.085, DEPTH * 0.86], [centre, TRANSOM, WALL_Z], frame, 0.02);
+  for (let i = 0; i <= BAYS; i += 1) {
+    addBox(scene, [POST, HEAD, DEPTH], [LEFT + (width * i) / BAYS, HEAD / 2, WALL_Z], frame, 0.02);
+  }
+
+  const bayWidth = width / BAYS;
+  const rows: [number, number][] = [
+    [0.11, TRANSOM - 0.0425],
+    [TRANSOM + 0.0425, HEAD - 0.2],
+  ];
+  for (let i = 0; i < BAYS; i += 1) {
+    const x = LEFT + bayWidth * (i + 0.5);
+    for (const [bottom, top] of rows) {
+      const pane = new THREE.Mesh(
+        new THREE.PlaneGeometry(bayWidth - POST, top - bottom),
+        glass,
+      );
+      pane.position.set(x, (bottom + top) / 2, WALL_Z + 0.01);
+      scene.add(pane);
+    }
+  }
+}
+
 function buildRoom(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactory) {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(13, 11), palette.floor);
   floor.rotation.x = -Math.PI / 2;
@@ -477,12 +538,12 @@ function buildRoom(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactor
   scene.add(floor);
 
   addBox(scene, [0.18, 5.6, 10.8], [-6.4, 2.8, 0], palette.wall, 0.02);
-  addBox(scene, [9.55, 5.6, 0.18], [-1.62, 2.8, -5.35], palette.wall, 0.02);
   addBox(scene, [1.45, 5.6, 0.18], [5.67, 2.8, -5.35], palette.wall, 0.02);
   addBox(scene, [2.15, 1.35, 0.18], [4.1, 4.92, -5.35], palette.wall, 0.02);
   addBox(scene, [0.16, 0.23, 10.7], [-6.28, 0.13, 0], palette.trim, 0.02);
-  addBox(scene, [9.55, 0.23, 0.16], [-1.62, 0.13, -5.23], palette.trim, 0.02);
   addBox(scene, [1.45, 0.23, 0.16], [5.67, 0.13, -5.23], palette.trim, 0.02);
+  // The rest of the sea-facing wall is glass.
+  buildSeaWindow(scene, palette);
 
   const rug = new THREE.Mesh(new THREE.CircleGeometry(2.25, 96), palette.rug);
   rug.rotation.x = -Math.PI / 2;
@@ -494,7 +555,8 @@ function buildRoom(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactor
   // Where the walls meet the floor, ambient light never fully reaches.
   const crease = surfaces.radialFalloff("rgba(0,0,0,0.5)", "rgba(0,0,0,0.16)", 0.55);
   addContactShadow(scene, crease, [-5.4, 0], [3.4, 11], 0.5);
-  addContactShadow(scene, crease, [-1.6, -4.4], [10, 3], 0.5);
+  // Daylight now floods the glazed wall, so the crease under it stays faint.
+  addContactShadow(scene, crease, [-1.6, -4.4], [10, 3], 0.16);
 }
 
 function buildOcean(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactory) {
@@ -664,6 +726,90 @@ function buildTree(scene: THREE.Scene, palette: Palette, interactive: THREE.Obje
   return tree;
 }
 
+/**
+ * A LEGO brick, built to the real ratios: an 8mm stud pitch, a 9.6mm brick
+ * height (1.2 pitches), and a 5mm stud. Keeping the proportions is what makes
+ * a handful of boxes read as LEGO rather than as blocks.
+ */
+// Oversized about five times against the girl's scale — at true size a stud
+// would be a couple of pixels from the default camera.
+const STUD_PITCH = 0.075;
+const BRICK_HEIGHT = STUD_PITCH * 1.2;
+const STUD_RADIUS = STUD_PITCH * 0.3;
+
+function legoBrick(
+  parent: THREE.Object3D,
+  studs: [number, number],
+  position: [number, number, number],
+  material: THREE.Material,
+  rotation = 0,
+) {
+  const brick = new THREE.Group();
+  brick.position.set(...position);
+  brick.rotation.y = rotation;
+  parent.add(brick);
+
+  const width = studs[0] * STUD_PITCH;
+  const depth = studs[1] * STUD_PITCH;
+  const body = roundedBox([width - 0.004, BRICK_HEIGHT, depth - 0.004], material, 0.007);
+  body.position.y = BRICK_HEIGHT / 2;
+  brick.add(body);
+
+  for (let i = 0; i < studs[0]; i += 1) {
+    for (let j = 0; j < studs[1]; j += 1) {
+      const stud = new THREE.Mesh(
+        new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_PITCH * 0.22, 16),
+        material,
+      );
+      stud.position.set(
+        -width / 2 + STUD_PITCH * (i + 0.5),
+        BRICK_HEIGHT + STUD_PITCH * 0.09,
+        -depth / 2 + STUD_PITCH * (j + 0.5),
+      );
+      stud.castShadow = true;
+      stud.receiveShadow = true;
+      brick.add(stud);
+    }
+  }
+  return brick;
+}
+
+/** A half-finished little build left on the piano lid, plus loose bricks. */
+function buildLego(parent: THREE.Object3D, base: [number, number, number]) {
+  const plastic = (color: number) =>
+    new THREE.MeshPhysicalMaterial({
+      color,
+      roughness: 0.26,
+      metalness: 0,
+      clearcoat: 0.9,
+      clearcoatRoughness: 0.07,
+      envMapIntensity: 1.1,
+    });
+  const red = plastic(0xd01012);
+  const blue = plastic(0x0057a6);
+  const yellow = plastic(0xf5c518);
+  const green = plastic(0x2e8b3d);
+  const white = plastic(0xf2f3f2);
+
+  const lego = new THREE.Group();
+  lego.position.set(...base);
+  parent.add(lego);
+
+  const H = BRICK_HEIGHT;
+  legoBrick(lego, [4, 2], [0, 0, 0], red);
+  legoBrick(lego, [2, 2], [-STUD_PITCH, H, 0], blue);
+  legoBrick(lego, [2, 2], [STUD_PITCH, H, 0], yellow);
+  legoBrick(lego, [2, 2], [0, H * 2, 0], green);
+  legoBrick(lego, [1, 2], [-STUD_PITCH * 0.5, H * 3, 0], white);
+
+  // Loose pieces beside the stack, one knocked onto its side.
+  legoBrick(lego, [2, 2], [STUD_PITCH * 3.6, 0, STUD_PITCH * 1.7], white, 0.5);
+  legoBrick(lego, [1, 3], [-STUD_PITCH * 3.4, 0, STUD_PITCH * 1.2], yellow, -0.9);
+  const tipped = legoBrick(lego, [1, 2], [-STUD_PITCH * 2.6, BRICK_HEIGHT / 2, -STUD_PITCH * 1.6], red, 0.3);
+  tipped.rotation.x = Math.PI / 2;
+  return lego;
+}
+
 function buildPiano(scene: THREE.Scene, palette: Palette, interactive: THREE.Object3D[]) {
   const piano = new THREE.Group();
   piano.position.set(-5.95, 0, 2.3);
@@ -736,6 +882,10 @@ function buildPiano(scene: THREE.Scene, palette: Palette, interactive: THREE.Obj
   for (const x of [-0.5, 0.5]) {
     for (const z of [1.22, 1.54]) addBox(piano, [0.1, 0.72, 0.1], [x, 0.34, z], lacquer, 0.03);
   }
+
+  // Sitting on the lid, and inside the piano group so a click on the bricks
+  // still starts the piano story rather than doing nothing.
+  buildLego(piano, [0.58, 2.63, -0.09]);
 
   markInteractive(piano, "piano", interactive);
   return { piano, keys };
