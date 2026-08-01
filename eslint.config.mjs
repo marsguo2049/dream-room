@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The static Pages build: scene.js and textures.js are type-stripped
+    // output of app/*.ts, and vendor/ holds an unmodified three.js copy.
+    // Lint the TypeScript sources instead.
+    "docs/**",
   ]),
 ]);
 

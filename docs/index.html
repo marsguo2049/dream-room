@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dream Room · 有树、钢琴与海之门的三维房间</title>
+    <meta name="description" content="Dream Room 是一间可以在浏览器里走进去的三维房间：拖拽换视角，点树看女孩爬上去做单杠，点门跟她一起跳进海里，点钢琴听一段旋律，点书桌陪她读书。">
+
+    <meta property="og:title" content="Dream Room · 有树、钢琴与海之门的三维房间">
+    <meta property="og:description" content="点树爬上去做单杠，点门跳进海里，点钢琴听一段旋律，点书桌陪她读书。几何、贴图与光照全部由代码生成。">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://moltpany.github.io/dream-room/">
+
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23284a52'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23f4f0e5' font-family='serif'%3E%F0%9F%8C%8A%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="dream.css">
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/three.module.min.js",
+          "three/examples/jsm/controls/OrbitControls.js": "./vendor/three/OrbitControls.js",
+          "three/examples/jsm/geometries/RoundedBoxGeometry.js": "./vendor/three/RoundedBoxGeometry.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main class="dream-shell">
+      <header class="dream-header">
+        <a class="brand" href="https://moltpany.github.io/" aria-label="返回 Moltpany 首页">
+          DREAM<span>/ROOM</span>
+        </a>
+        <div class="header-links">
+          <span class="chapter">CHAPTER 01 · THE TREE &amp; THE SEA</span>
+          <a href="https://moltpany.github.io/">← Moltpany</a>
+          <a href="https://github.com/moltpany/dream-room" rel="noopener">源码</a>
+        </div>
+      </header>
+
+      <section class="scene-card" aria-label="一间有树、女孩、钢琴、书桌和海之门的可交互三维房间">
+        <div id="scene-mount" class="scene-mount"></div>
+
+        <div id="scene-fallback" class="scene-fallback" hidden>
+          <strong>这台设备暂时打不开这间房间</strong>
+          <p>Dream Room 需要浏览器支持 WebGL。请换用较新的 Chrome、Edge、Safari 或 Firefox，并确认没有关闭硬件加速。</p>
+        </div>
+
+        <div class="room-title">
+          <span>梦境房间 / 01</span>
+          <strong>Some doors open into the sea.</strong>
+        </div>
+
+        <div class="story-actions" aria-label="互动选择">
+          <button data-action="tree">
+            <span>01</span>
+            <strong>爬树与体操下杠</strong>
+            <small>CLIMB · SWING · 360°</small>
+          </button>
+          <button data-action="door">
+            <span>02</span>
+            <strong>打开海之门</strong>
+            <small>OPEN &amp; SWIM</small>
+          </button>
+          <button data-action="piano">
+            <span>03</span>
+            <strong>坐下弹钢琴</strong>
+            <small>PLAY &amp; LISTEN</small>
+          </button>
+          <button data-action="desk">
+            <span>04</span>
+            <strong>在书桌前学习</strong>
+            <small>READ &amp; WRITE</small>
+          </button>
+        </div>
+
+        <div class="interaction-hint" aria-live="polite">
+          <span class="hint-dot"></span>
+          <span id="interaction-status">正在加载三维场景…</span>
+        </div>
+
+        <button class="reset-button" id="reset-button" aria-label="重置女孩和房间动画">
+          ↻ 重置故事
+        </button>
+      </section>
+
+      <footer class="dream-footer">
+        <span>拖拽旋转 · 滚轮缩放 · 点击互动</span>
+        <span>TREE · PIANO · STUDY · SEA BEYOND THE DOOR</span>
+      </footer>
+    </main>
+
+    <script type="module">
+      import { createDreamRoom, IDLE_STATUS } from "./scene.js";
+
+      const mount = document.getElementById("scene-mount");
+      const fallback = document.getElementById("scene-fallback");
+      const statusLine = document.getElementById("interaction-status");
+      const buttons = [...document.querySelectorAll(".story-actions button")];
+
+      // WebGL is the one hard requirement; say so plainly rather than
+      // leaving an empty grey rectangle behind.
+      const supportsWebGL = (() => {
+        try {
+          return Boolean(document.createElement("canvas").getContext("webgl2"));
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!supportsWebGL) {
+        mount.hidden = true;
+        fallback.hidden = false;
+        statusLine.textContent = "无法初始化 WebGL";
+      } else {
+        const room = createDreamRoom(mount, {
+          onStatus: (message) => {
+            statusLine.textContent = message;
+          },
+          onActive: (action) => {
+            for (const button of buttons) {
+              button.classList.toggle("is-active", button.dataset.action === action);
+            }
+          },
+        });
+
+        statusLine.textContent = IDLE_STATUS;
+        for (const button of buttons) {
+          button.addEventListener("click", () => room.act(button.dataset.action));
+        }
+        document.getElementById("reset-button").addEventListener("click", () => room.reset());
+      }
+    </script>
+  </body>
+</html>
