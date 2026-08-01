@@ -587,7 +587,7 @@ function buildSeaWindow(scene: THREE.Scene, palette: Palette) {
   }
 }
 
-function buildRoom(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactory): THREE.Mesh {
+function buildRoom(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactory) {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(13, 11), palette.floor);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, 0, 0);
@@ -595,11 +595,20 @@ function buildRoom(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactor
   floor.userData.action = "floor";
   scene.add(floor);
 
-  addBox(scene, [0.18, 5.6, 10.8], [-6.4, 2.8, 0], palette.wall, 0.02);
-  addBox(scene, [1.45, 5.6, 0.18], [5.67, 2.8, -5.35], palette.wall, 0.02);
-  addBox(scene, [2.15, 1.35, 0.18], [4.1, 4.92, -5.35], palette.wall, 0.02);
-  addBox(scene, [0.16, 0.23, 10.7], [-6.28, 0.13, 0], palette.trim, 0.02);
-  addBox(scene, [1.45, 0.23, 0.16], [5.67, 0.13, -5.23], palette.trim, 0.02);
+  // Grouped by which side of the room they close, so a wall the camera has
+  // stepped outside of can get out of the way. Without that, orbiting round
+  // the back just presses your nose against a blank plaster panel.
+  const leftWall = new THREE.Group();
+  scene.add(leftWall);
+  addBox(leftWall, [0.18, 5.6, 10.8], [-6.4, 2.8, 0], palette.wall, 0.02);
+  addBox(leftWall, [0.16, 0.23, 10.7], [-6.28, 0.13, 0], palette.trim, 0.02);
+
+  const backWall = new THREE.Group();
+  scene.add(backWall);
+  addBox(backWall, [1.45, 5.6, 0.18], [5.67, 2.8, -5.35], palette.wall, 0.02);
+  addBox(backWall, [2.15, 1.35, 0.18], [4.1, 4.92, -5.35], palette.wall, 0.02);
+  addBox(backWall, [1.45, 0.23, 0.16], [5.67, 0.13, -5.23], palette.trim, 0.02);
+
   // The rest of the sea-facing wall is glass.
   buildSeaWindow(scene, palette);
 
@@ -615,7 +624,7 @@ function buildRoom(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactor
   addContactShadow(scene, crease, [-5.4, 0], [3.4, 11], 0.5);
   // Daylight now floods the glazed wall, so the crease under it stays faint.
   addContactShadow(scene, crease, [-1.6, -4.4], [10, 3], 0.16);
-  return floor;
+  return { floor, leftWall, backWall };
 }
 
 function buildOcean(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFactory) {
@@ -625,15 +634,24 @@ function buildOcean(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFacto
 
   // The sky and sun opt out of fog: they are the horizon the fog fades into,
   // so fogging them would grey out the view through the door.
+  // The backdrop sits far enough out that the orbit never reaches it. With the
+  // azimuth unclamped the camera swings to z ≈ -24 on the sea side; at the old
+  // distance it ended up behind the sky, and the sun sprite filled the screen
+  // from a few units away.
   const sky = new THREE.Mesh(
-    new THREE.PlaneGeometry(26, 15),
-    new THREE.MeshBasicMaterial({ map: surfaces.seaSky(), toneMapped: false, fog: false }),
+    new THREE.PlaneGeometry(54, 31),
+    new THREE.MeshBasicMaterial({
+      map: surfaces.seaSky(),
+      toneMapped: false,
+      fog: false,
+      side: THREE.DoubleSide,
+    }),
   );
-  sky.position.set(0, 5.4, -10);
+  sky.position.set(0, 10.4, -26);
   ocean.add(sky);
 
   const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xfff3cf, toneMapped: false, fog: false });
-  addSphere(ocean, 0.72, [-3.9, 5.65, -9.65], sunMaterial);
+  addSphere(ocean, 1.5, [-8.1, 11.6, -25.5], sunMaterial);
   // An additive halo so the sun bleeds into the sky instead of sitting on it.
   const halo = new THREE.Sprite(
     new THREE.SpriteMaterial({
@@ -645,8 +663,8 @@ function buildOcean(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFacto
       fog: false,
     }),
   );
-  halo.position.set(-3.9, 5.65, -9.62);
-  halo.scale.set(7.2, 7.2, 1);
+  halo.position.set(-8.1, 11.6, -25.4);
+  halo.scale.set(15, 15, 1);
   ocean.add(halo);
 
   const waterNormal = surfaces.seaNormal();
@@ -665,9 +683,9 @@ function buildOcean(scene: THREE.Scene, palette: Palette, surfaces: SurfaceFacto
   });
   // The near edge starts beyond the exterior threshold. No part of this plane
   // extends beneath the room floor.
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(22, 12, 48, 34), waterMaterial);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(48, 30, 52, 36), waterMaterial);
   water.rotation.x = -Math.PI / 2;
-  water.position.set(0, 0.06, -6);
+  water.position.set(0, 0.06, -15);
   water.receiveShadow = true;
   ocean.add(water);
 
@@ -1618,8 +1636,10 @@ function setWalkPose(rig: GirlRig, clock: number, amount = 1) {
   rig.rightArm.pivot.rotation.x = -armSwing;
   rig.leftArm.pivot.rotation.z = 0.075;
   rig.rightArm.pivot.rotation.z = -0.075;
-  rig.leftArm.lower.rotation.x = (0.16 + leftLift * 0.24) * amount;
-  rig.rightArm.lower.rotation.x = (0.16 + rightLift * 0.24) * amount;
+  // Negative flexes the forearm forward. Positive rotation about the elbow's
+  // local X sends it backward, which left the elbows pointing at the viewer.
+  rig.leftArm.lower.rotation.x = -(0.16 + leftLift * 0.24) * amount;
+  rig.rightArm.lower.rotation.x = -(0.16 + rightLift * 0.24) * amount;
   rig.leftLeg.pivot.rotation.x = -stride * 0.52 * amount;
   rig.rightLeg.pivot.rotation.x = stride * 0.52 * amount;
   rig.leftLeg.lower.rotation.x = leftLift * 0.72 * amount;
@@ -1739,7 +1759,8 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
   const glowFalloff = surfaces.radialFalloff("rgba(255,231,180,0.9)", "rgba(255,205,128,0.2)", 0.28);
 
   const interactive: THREE.Object3D[] = [];
-  const floor = buildRoom(scene, palette, surfaces);
+  const room = buildRoom(scene, palette, surfaces);
+  const floor = room.floor;
   const ocean = buildOcean(scene, palette, surfaces);
   const doorHinge = buildDoor(scene, palette, interactive);
   buildTree(scene, palette, interactive);
@@ -2023,8 +2044,8 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
       girl.torso.scale.y = 1 + Math.sin(elapsed * 2.05) * 0.009;
       girl.leftArm.pivot.rotation.z = 0.08;
       girl.rightArm.pivot.rotation.z = -0.08;
-      girl.leftArm.lower.rotation.x = 0.08;
-      girl.rightArm.lower.rotation.x = 0.08;
+      girl.leftArm.lower.rotation.x = -0.13;
+      girl.rightArm.lower.rotation.x = -0.13;
     }
 
     if (state === "walk-to") {
@@ -2095,8 +2116,8 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
       girl.rightArm.pivot.rotation.x = -0.7 * tuck;
       girl.leftArm.pivot.rotation.z = 0.7 * tuck;
       girl.rightArm.pivot.rotation.z = -0.7 * tuck;
-      girl.leftArm.lower.rotation.x = 1.1 * tuck;
-      girl.rightArm.lower.rotation.x = 1.1 * tuck;
+      girl.leftArm.lower.rotation.x = -1.1 * tuck;
+      girl.rightArm.lower.rotation.x = -1.1 * tuck;
       girl.leftLeg.pivot.rotation.x = -0.82 * tuck;
       girl.rightLeg.pivot.rotation.x = -0.82 * tuck;
       girl.leftLeg.lower.rotation.x = 1.72 * tuck;
@@ -2362,6 +2383,9 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
     doorHinge.rotation.y = THREE.MathUtils.lerp(doorHinge.rotation.y, doorTarget, 0.075);
     const openness = THREE.MathUtils.clamp(Math.abs(doorHinge.rotation.y) / (Math.PI * 0.52), 0, 1);
     doorShaftMaterial.opacity = openness * 0.34;
+    // Cut away whichever wall the camera has gone behind.
+    room.leftWall.visible = camera.position.x > -6.4;
+    room.backWall.visible = camera.position.z > -5.35;
     studyDesk.bulbGlow.material.opacity = 0.5 + Math.sin(elapsed * 2.6) * 0.06;
     if (legoAmount !== legoTarget) {
       const step = dt / 1.15;
