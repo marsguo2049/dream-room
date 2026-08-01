@@ -8,9 +8,10 @@ it — where she floats in a swim ring for a while before paddling back, climbin
 out and walking home — sit down and play a short melody, or settle at the desk
 to read and write.
 
-The sea-facing wall is glazed floor to ceiling, so the water is in the room
-whether or not the door is open, and there is a half-built pile of LEGO left on
-the piano lid.
+Click the floor and she walks there; click the pile of LEGO on the piano lid
+and it builds itself into a tower, or comes apart across the lid. The
+sea-facing wall is glazed floor to ceiling, so the water is in the room whether
+or not the door is open, and the camera turns all the way around.
 
 **Live demo:** <https://moltpany.github.io/dream-room/>
 

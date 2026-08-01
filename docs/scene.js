@@ -32,6 +32,46 @@ const SWIM_HOME = new THREE.Vector3(3.3, FLOAT_Y, -8.35);
 // invisible: the sight line from the default camera crosses the wall plane at
 // x ≈ 5.5, a few centimetres past the edge of the opening.
 const SWIM_DRIFT = new THREE.Vector3(-1.3, FLOAT_Y, -9.3);
+// Walking pace, in units per second. Story walks are timed from this too, so
+// she covers a short hop and a long crossing at the same speed instead of
+// creeping when she starts out close to her destination.
+const PACE = 1.35;
+const paceSeconds = (from, to) => THREE.MathUtils.clamp(from.distanceTo(to) / PACE, 1.1, 6);
+// Clear floor, and the footprints she should not walk into.
+const ROOM_MIN_X = -5.5;
+const ROOM_MAX_X = 5.5;
+const ROOM_MIN_Z = -4.5;
+const ROOM_MAX_Z = 4.6;
+const FOOTPRINTS = [
+    [-3.6, -1.0, 1.15],
+    [-5.6, 2.3, 1.35],
+    [3.55, 1.9, 1.5],
+];
+/**
+ * Snap a clicked point to somewhere she can actually stand: inside the room,
+ * and outside the furniture. A click on the tree pushes out to the edge of its
+ * footprint rather than being refused, so every click does something.
+ */
+function placeWalkTarget(point, out) {
+    let x = THREE.MathUtils.clamp(point.x, ROOM_MIN_X, ROOM_MAX_X);
+    let z = THREE.MathUtils.clamp(point.z, ROOM_MIN_Z, ROOM_MAX_Z);
+    for (const [ox, oz, radius] of FOOTPRINTS) {
+        const dx = x - ox;
+        const dz = z - oz;
+        const distance = Math.hypot(dx, dz);
+        if (distance >= radius)
+            continue;
+        if (distance < 0.001) {
+            x = ox;
+            z = oz + radius;
+        }
+        else {
+            x = ox + (dx / distance) * radius;
+            z = oz + (dz / distance) * radius;
+        }
+    }
+    return out.set(x, 0, z);
+}
 const SWIM_EXIT = new THREE.Vector3(3.62, FLOAT_Y + 0.12, -7.05);
 const SEA_SHORE = new THREE.Vector3(3.6, 0, -6.8);
 // The camera is penned into the +Z half of the room, so a girl facing -Z
@@ -438,6 +478,7 @@ function buildRoom(scene, palette, surfaces) {
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0, 0);
     floor.receiveShadow = true;
+    floor.userData.action = "floor";
     scene.add(floor);
     addBox(scene, [0.18, 5.6, 10.8], [-6.4, 2.8, 0], palette.wall, 0.02);
     addBox(scene, [1.45, 5.6, 0.18], [5.67, 2.8, -5.35], palette.wall, 0.02);
@@ -457,6 +498,7 @@ function buildRoom(scene, palette, surfaces) {
     addContactShadow(scene, crease, [-5.4, 0], [3.4, 11], 0.5);
     // Daylight now floods the glazed wall, so the crease under it stays faint.
     addContactShadow(scene, crease, [-1.6, -4.4], [10, 3], 0.16);
+    return floor;
 }
 function buildOcean(scene, palette, surfaces) {
     const ocean = new THREE.Group();
@@ -631,7 +673,6 @@ function legoBrick(parent, studs, position, material, rotation = 0) {
     }
     return brick;
 }
-/** A half-finished little build left on the piano lid, plus loose bricks. */
 function buildLego(parent, base) {
     const plastic = (color) => new THREE.MeshPhysicalMaterial({
         color,
@@ -646,21 +687,47 @@ function buildLego(parent, base) {
     const yellow = plastic(0xf5c518);
     const green = plastic(0x2e8b3d);
     const white = plastic(0xf2f3f2);
-    const lego = new THREE.Group();
-    lego.position.set(...base);
-    parent.add(lego);
+    const group = new THREE.Group();
+    group.position.set(...base);
+    parent.add(group);
+    const P = STUD_PITCH;
     const H = BRICK_HEIGHT;
-    legoBrick(lego, [4, 2], [0, 0, 0], red);
-    legoBrick(lego, [2, 2], [-STUD_PITCH, H, 0], blue);
-    legoBrick(lego, [2, 2], [STUD_PITCH, H, 0], yellow);
-    legoBrick(lego, [2, 2], [0, H * 2, 0], green);
-    legoBrick(lego, [1, 2], [-STUD_PITCH * 0.5, H * 3, 0], white);
-    // Loose pieces beside the stack, one knocked onto its side.
-    legoBrick(lego, [2, 2], [STUD_PITCH * 3.6, 0, STUD_PITCH * 1.7], white, 0.5);
-    legoBrick(lego, [1, 3], [-STUD_PITCH * 3.4, 0, STUD_PITCH * 1.2], yellow, -0.9);
-    const tipped = legoBrick(lego, [1, 2], [-STUD_PITCH * 2.6, BRICK_HEIGHT / 2, -STUD_PITCH * 1.6], red, 0.3);
-    tipped.rotation.x = Math.PI / 2;
-    return lego;
+    // built: x, y, z, rx, ry, rz — then the same for the scattered pose. Written
+    // out rather than randomised so the mess is composed, and identical on every
+    // reload.
+    const pieces = [
+        { studs: [4, 2], material: red, built: [0, 0, 0, 0, 0, 0], loose: [-P * 0.6, 0, P * 1.9, 0, 0.42, 0] },
+        { studs: [2, 2], material: blue, built: [-P, H, 0, 0, 0, 0], loose: [P * 2.9, 0, -P * 1.5, 0, -0.7, 0] },
+        { studs: [2, 2], material: yellow, built: [P, H, 0, 0, 0, 0], loose: [-P * 3.5, 0, -P * 0.7, 0, 1.1, 0] },
+        { studs: [2, 2], material: green, built: [0, H * 2, 0, 0, 0, 0], loose: [P * 1.5, H * 0.5, P * 1.6, Math.PI / 2, 0.3, 0] },
+        { studs: [1, 2], material: white, built: [-P * 0.5, H * 3, 0, 0, 0, 0], loose: [-P * 2.2, 0, P * 1.4, 0, -0.35, 0] },
+        { studs: [2, 2], material: white, built: [P * 3.6, 0, P * 1.7, 0, 0.5, 0], loose: [P * 4, 0, P * 0.4, 0, 0.95, 0] },
+        { studs: [1, 3], material: yellow, built: [-P * 3.4, 0, P * 1.2, 0, -0.9, 0], loose: [-P * 4.4, 0, P * 0.2, 0, -0.25, 0] },
+        { studs: [1, 2], material: red, built: [-P * 2.6, H / 2, -P * 1.6, Math.PI / 2, 0.3, 0], loose: [P * 0.4, 0, -P * 2.1, 0, 0.15, 0] },
+    ];
+    const bricks = pieces.map((piece) => {
+        const brick = legoBrick(group, piece.studs, [piece.built[0], piece.built[1], piece.built[2]], piece.material);
+        brick.rotation.set(piece.built[3], piece.built[4], piece.built[5]);
+        brick.userData.builtPosition = new THREE.Vector3(piece.built[0], piece.built[1], piece.built[2]);
+        brick.userData.builtQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(piece.built[3], piece.built[4], piece.built[5]));
+        brick.userData.loosePosition = new THREE.Vector3(piece.loose[0], piece.loose[1], piece.loose[2]);
+        brick.userData.looseQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(piece.loose[3], piece.loose[4], piece.loose[5]));
+        return brick;
+    });
+    return { group, bricks };
+}
+/** Drives the pile between built (0) and scattered (1). */
+function applyLego(pile, amount) {
+    const t = ease(amount);
+    pile.bricks.forEach((brick, index) => {
+        const built = brick.userData.builtPosition;
+        const loose = brick.userData.loosePosition;
+        brick.position.lerpVectors(built, loose, t);
+        // A small hop mid-transition, so bricks tumble across the lid instead of
+        // sliding through each other.
+        brick.position.y += Math.sin(t * Math.PI) * (0.07 + (index % 3) * 0.028);
+        brick.quaternion.slerpQuaternions(brick.userData.builtQuaternion, brick.userData.looseQuaternion, t);
+    });
 }
 function buildPiano(scene, palette, interactive) {
     const piano = new THREE.Group();
@@ -720,11 +787,16 @@ function buildPiano(scene, palette, interactive) {
         for (const z of [1.22, 1.54])
             addBox(piano, [0.1, 0.72, 0.1], [x, 0.34, z], lacquer, 0.03);
     }
-    // Sitting on the lid, and inside the piano group so a click on the bricks
-    // still starts the piano story rather than doing nothing.
-    buildLego(piano, [0.58, 2.63, -0.09]);
+    // Sitting on the lid, and parented to the piano so it travels with it.
+    const lego = buildLego(piano, [0.58, 2.63, -0.09]);
     markInteractive(piano, "piano", interactive);
-    return { piano, keys };
+    // The bricks are inside the piano group, so they picked up the piano action
+    // above. Claim them back afterwards — they have their own interaction.
+    lego.group.traverse((object) => {
+        if (object instanceof THREE.Mesh)
+            object.userData.action = "lego";
+    });
+    return { piano, keys, lego };
 }
 function buildDesk(scene, palette, glowFalloff, interactive) {
     const desk = new THREE.Group();
@@ -869,9 +941,11 @@ function addHand(limb, side, length, palette) {
     palm.scale.set(1, 1, 0.74);
     palm.castShadow = true;
     hand.add(palm);
+    // The thumb belongs on the inside of the hand, angled forward. It was
+    // mirrored outward on both arms, which reads as hands on the wrong wrists.
     const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.045, 3, 10), palette.skin);
-    thumb.position.set(side * 0.05, -0.045, 0.022);
-    thumb.rotation.z = side * -0.75;
+    thumb.position.set(-side * 0.046, -0.04, 0.03);
+    thumb.rotation.set(-0.3, 0, side * 0.75);
     thumb.castShadow = true;
     hand.add(thumb);
     return hand;
@@ -1250,7 +1324,7 @@ function lockHandsToBar(rig, angle) {
     rig.leftArm.lower.rotation.z = 0;
     rig.rightArm.lower.rotation.z = 0;
 }
-export const IDLE_STATUS = "拖拽查看梦境 · 点击树、门、钢琴或书桌";
+export const IDLE_STATUS = "拖拽查看梦境 · 点地面让她走过去 · 点物件看故事";
 export function createDreamRoom(mount, handlers) {
     const setStatus = handlers.onStatus;
     const setActive = handlers.onActive;
@@ -1293,15 +1367,17 @@ export function createDreamRoom(mount, handlers) {
     controls.maxDistance = 23;
     controls.minPolarAngle = Math.PI * 0.16;
     controls.maxPolarAngle = Math.PI * 0.48;
-    controls.minAzimuthAngle = -Math.PI * 0.24;
-    controls.maxAzimuthAngle = Math.PI * 0.42;
+    // Unclamped azimuth: the room can be walked all the way around. The polar
+    // limits stay, so the camera never drops through the floor.
+    controls.minAzimuthAngle = -Infinity;
+    controls.maxAzimuthAngle = Infinity;
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.13;
     const palette = createPalette(surfaces);
     const softShadow = surfaces.radialFalloff("rgba(0,0,0,0.55)", "rgba(0,0,0,0.2)", 0.5);
     const glowFalloff = surfaces.radialFalloff("rgba(255,231,180,0.9)", "rgba(255,205,128,0.2)", 0.28);
     const interactive = [];
-    buildRoom(scene, palette, surfaces);
+    const floor = buildRoom(scene, palette, surfaces);
     const ocean = buildOcean(scene, palette, surfaces);
     const doorHinge = buildDoor(scene, palette, interactive);
     buildTree(scene, palette, interactive);
@@ -1367,6 +1443,16 @@ export function createDreamRoom(mount, handlers) {
     let queued = null;
     let doorTarget = 0;
     const downAt = new THREE.Vector3();
+    // Free walking, and the origin a story departs from.
+    const walkFrom = new THREE.Vector3();
+    const walkTo = new THREE.Vector3();
+    let walkSeconds = 2;
+    let walkStartFacing = HOME_FACING;
+    const storyFrom = new THREE.Vector3();
+    let storySeconds = 3;
+    // 0 is the tower standing, 1 is the pile scattered across the lid.
+    let legoAmount = 0;
+    let legoTarget = 0;
     const surfaceAt = new THREE.Vector3();
     let surfaceFacing = Math.PI;
     let audioContext = null;
@@ -1403,7 +1489,7 @@ export function createDreamRoom(mount, handlers) {
         controls.autoRotate = false;
         if (action === "piano")
             ensureAudio();
-        if (state !== "idle") {
+        if (state !== "idle" && state !== "walk-to") {
             queued = action;
             const queuedMessage = {
                 tree: "她会完成当前动作后去爬树",
@@ -1415,20 +1501,33 @@ export function createDreamRoom(mount, handlers) {
             return;
         }
         setActive(action);
-        if (action === "tree")
+        storyFrom.copy(girl.root.position);
+        storyFrom.y = 0;
+        walkStartFacing = girl.root.rotation.y;
+        if (action === "tree") {
+            storySeconds = paceSeconds(storyFrom, TREE_BASE);
             transition("tree-walk", "女孩正走向那棵树…");
-        else if (action === "door")
+        }
+        else if (action === "door") {
+            storySeconds = paceSeconds(storyFrom, DOOR_FRONT);
             transition("door-walk", "女孩听见了门外的海浪…");
-        else if (action === "piano")
+        }
+        else if (action === "piano") {
+            storySeconds = paceSeconds(storyFrom, PIANO_SEAT);
             transition("piano-walk", "女孩正走向钢琴…");
-        else
+        }
+        else {
+            storySeconds = paceSeconds(storyFrom, DESK_SEAT);
             transition("desk-walk", "女孩带着好奇心走向书桌…");
+        }
     };
-    const returnIdle = () => {
+    const returnIdle = (toHome = true) => {
         state = "idle";
         phase = 0;
-        girl.root.position.copy(HOME);
-        girl.root.rotation.set(0, HOME_FACING, 0);
+        if (toHome) {
+            girl.root.position.copy(HOME);
+            girl.root.rotation.set(0, HOME_FACING, 0);
+        }
         swimRing.visible = false;
         doorTarget = 0;
         setActive("idle");
@@ -1446,28 +1545,53 @@ export function createDreamRoom(mount, handlers) {
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const pointerStart = new THREE.Vector2();
+    // The floor is a hit target too, so one cast covers props and free walking.
+    interactive.push(floor);
+    const walkToPoint = (point) => {
+        if (state !== "idle" && state !== "walk-to") {
+            setStatus("她正忙着 · 等这一段演完再叫她");
+            return;
+        }
+        controls.autoRotate = false;
+        placeWalkTarget(point, walkTo);
+        walkFrom.copy(girl.root.position);
+        walkFrom.y = 0;
+        const distance = walkFrom.distanceTo(walkTo);
+        if (distance < 0.3)
+            return;
+        walkSeconds = THREE.MathUtils.clamp(distance / PACE, 0.8, 6);
+        walkStartFacing = girl.root.rotation.y;
+        girl.root.position.y = 0;
+        setActive("idle");
+        transition("walk-to", "她朝你点的地方走过去…");
+    };
+    const toggleLego = () => {
+        controls.autoRotate = false;
+        legoTarget = legoTarget > 0.5 ? 0 : 1;
+        setStatus(legoTarget > 0.5 ? "哗啦——积木散了一琴盖" : "积木被一块块搭了回去");
+    };
     const hitAt = (event) => {
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(pointer, camera);
-        return raycaster.intersectObjects(interactive, false)[0]?.object ?? null;
+        return raycaster.intersectObjects(interactive, false)[0] ?? null;
+    };
+    const HINTS = {
+        tree: "点击树 · 看女孩爬树做单杠",
+        door: "点击门 · 跟女孩一起去看海",
+        piano: "点击钢琴 · 听女孩弹奏一段旋律",
+        desk: "点击书桌 · 陪女孩阅读与学习",
+        lego: "点击积木 · 把它搭起来，或者推散",
+        floor: "点击地面 · 她会自己走过去",
     };
     const onMove = (event) => {
         const hit = hitAt(event);
-        renderer.domElement.style.cursor = hit ? "pointer" : "grab";
+        const action = hit?.object.userData.action;
+        renderer.domElement.style.cursor = action ? "pointer" : "grab";
         if (state !== "idle")
             return;
-        if (hit?.userData.action === "tree")
-            setStatus("点击树 · 看女孩爬树做单杠");
-        else if (hit?.userData.action === "door")
-            setStatus("点击门 · 跟女孩一起去看海");
-        else if (hit?.userData.action === "piano")
-            setStatus("点击钢琴 · 听女孩弹奏一段旋律");
-        else if (hit?.userData.action === "desk")
-            setStatus("点击书桌 · 陪女孩阅读与学习");
-        else
-            setStatus(IDLE_STATUS);
+        setStatus((action && HINTS[action]) ?? IDLE_STATUS);
     };
     const onDown = (event) => {
         pointerStart.set(event.clientX, event.clientY);
@@ -1479,14 +1603,14 @@ export function createDreamRoom(mount, handlers) {
         renderer.domElement.style.cursor = hit ? "pointer" : "grab";
         if (moved > 8 || !hit)
             return;
-        if (hit.userData.action === "tree")
-            startAction("tree");
-        if (hit.userData.action === "door")
-            startAction("door");
-        if (hit.userData.action === "piano")
-            startAction("piano");
-        if (hit.userData.action === "desk")
-            startAction("desk");
+        const action = hit.object.userData.action;
+        if (action === "lego")
+            toggleLego();
+        else if (action === "floor")
+            walkToPoint(hit.point);
+        else if (action === "tree" || action === "door" || action === "piano" || action === "desk") {
+            startAction(action);
+        }
     };
     renderer.domElement.addEventListener("pointermove", onMove);
     renderer.domElement.addEventListener("pointerdown", onDown);
@@ -1536,12 +1660,25 @@ export function createDreamRoom(mount, handlers) {
             girl.leftArm.lower.rotation.x = 0.08;
             girl.rightArm.lower.rotation.x = 0.08;
         }
-        if (state === "tree-walk") {
-            const p = ease(phase / 3.1);
-            girl.root.position.lerpVectors(HOME, TREE_BASE, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, -Math.PI / 2, p);
+        if (state === "walk-to") {
+            const p = ease(Math.min(1, phase / walkSeconds));
+            girl.root.position.lerpVectors(walkFrom, walkTo, p);
+            const heading = Math.atan2(walkTo.x - walkFrom.x, walkTo.z - walkFrom.z);
+            // Turn into the walk, then square up to the default camera on arrival,
+            // so she never finishes a walk with her face to a wall.
+            girl.root.rotation.y = p < 0.8
+                ? THREE.MathUtils.lerp(walkStartFacing, heading, Math.min(1, phase / 0.4))
+                : THREE.MathUtils.lerp(heading, HOME_FACING, ease((p - 0.8) / 0.2));
+            setWalkPose(girl, elapsed, Math.min(1, (1 - p) / 0.15));
+            if (phase > walkSeconds)
+                returnIdle(false);
+        }
+        else if (state === "tree-walk") {
+            const p = ease(phase / storySeconds);
+            girl.root.position.lerpVectors(storyFrom, TREE_BASE, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(walkStartFacing, -Math.PI / 2, p);
             setWalkPose(girl, elapsed);
-            if (phase > 3.1)
+            if (phase > storySeconds)
                 transition("tree-climb", "她正在沿着树干向上爬…");
         }
         else if (state === "tree-climb") {
@@ -1638,11 +1775,11 @@ export function createDreamRoom(mount, handlers) {
                 returnIdle();
         }
         else if (state === "piano-walk") {
-            const p = ease(phase / 3.4);
-            girl.root.position.lerpVectors(HOME, PIANO_SEAT, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, -Math.PI / 2, p);
+            const p = ease(phase / storySeconds);
+            girl.root.position.lerpVectors(storyFrom, PIANO_SEAT, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(walkStartFacing, -Math.PI / 2, p);
             setWalkPose(girl, elapsed);
-            if (phase > 3.4)
+            if (phase > storySeconds)
                 transition("piano-sit", "她在琴凳上坐好，双手轻轻放上琴键");
         }
         else if (state === "piano-sit") {
@@ -1704,11 +1841,11 @@ export function createDreamRoom(mount, handlers) {
                 returnIdle();
         }
         else if (state === "desk-walk") {
-            const p = ease(phase / 3.25);
-            girl.root.position.lerpVectors(HOME, DESK_SEAT, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, Math.PI, Math.min(1, p / 0.3));
+            const p = ease(phase / storySeconds);
+            girl.root.position.lerpVectors(storyFrom, DESK_SEAT, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(walkStartFacing, Math.PI, Math.min(1, p / 0.3));
             setWalkPose(girl, elapsed);
-            if (phase > 3.25)
+            if (phase > storySeconds)
                 transition("desk-sit", "她拉开椅子，在书桌前坐下");
         }
         else if (state === "desk-sit") {
@@ -1765,11 +1902,11 @@ export function createDreamRoom(mount, handlers) {
                 returnIdle();
         }
         else if (state === "door-walk") {
-            const p = ease(phase / 4.1);
-            girl.root.position.lerpVectors(HOME, DOOR_FRONT, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, Math.PI, Math.min(1, p / 0.3));
+            const p = ease(phase / storySeconds);
+            girl.root.position.lerpVectors(storyFrom, DOOR_FRONT, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(walkStartFacing, Math.PI, Math.min(1, p / 0.3));
             setWalkPose(girl, elapsed);
-            if (phase > 4.1)
+            if (phase > storySeconds)
                 transition("door-open", "她伸手推开了通往大海的门…");
         }
         else if (state === "door-open") {
@@ -1887,6 +2024,13 @@ export function createDreamRoom(mount, handlers) {
         const openness = THREE.MathUtils.clamp(Math.abs(doorHinge.rotation.y) / (Math.PI * 0.52), 0, 1);
         doorShaftMaterial.opacity = openness * 0.34;
         studyDesk.bulbGlow.material.opacity = 0.5 + Math.sin(elapsed * 2.6) * 0.06;
+        if (legoAmount !== legoTarget) {
+            const step = dt / 1.15;
+            legoAmount = legoTarget > legoAmount
+                ? Math.min(legoTarget, legoAmount + step)
+                : Math.max(legoTarget, legoAmount - step);
+            applyLego(piano.lego, legoAmount);
+        }
         if (state !== "tree-spin") {
             girl.ponytails.forEach((pony, index) => {
                 const side = index ? -1 : 1;
