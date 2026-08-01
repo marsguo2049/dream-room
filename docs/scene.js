@@ -14,7 +14,9 @@ import { createSurfaceFactory } from "./textures.js";
 const HOME = new THREE.Vector3(-0.15, 0, 2.55);
 const TREE_BASE = new THREE.Vector3(-2.38, 0, -0.58);
 const BAR_ANCHOR = new THREE.Vector3(-1.55, 3.52, -0.92);
-const ARM_REACH = 2.76;
+// Root origin to the hands with the arms straight overhead: shoulder height
+// plus both arm segments. The bar hang and the release point derive from it.
+const ARM_REACH = 2.35;
 const TREE_HANG = new THREE.Vector3(BAR_ANCHOR.x, BAR_ANCHOR.y - ARM_REACH, BAR_ANCHOR.z);
 const TREE_LAND = new THREE.Vector3(-1.48, 0, 1.12);
 const RELEASE_ANGLE = -0.62;
@@ -22,6 +24,10 @@ const RELEASE_POINT = new THREE.Vector3(BAR_ANCHOR.x, BAR_ANCHOR.y - Math.cos(RE
 const DOOR_FRONT = new THREE.Vector3(3.45, 0, -2.9);
 const PIANO_SEAT = new THREE.Vector3(-4.55, 0, 2.3);
 const DESK_SEAT = new THREE.Vector3(3.55, 0, 2.65);
+// The camera is penned into the +Z half of the room, so a girl facing -Z
+// showed the viewer nothing but the back of her head. At rest she stands at
+// three-quarters to the default camera, which is where her face reads best.
+const HOME_FACING = 0.68;
 const ease = (value) => {
     const t = THREE.MathUtils.clamp(value, 0, 1);
     return t * t * (3 - 2 * t);
@@ -670,142 +676,284 @@ function buildDesk(scene, palette, glowFalloff, interactive) {
     markInteractive(desk, "desk", interactive);
     return { desk, pencil, bulbGlow };
 }
-function buildLimb(parent, shoulder, upperLength, lowerLength, radius, material, shoeMaterial) {
+/**
+ * Body proportions, in one place.
+ *
+ * The previous figure was assembled without a shared measure: a 0.86-wide head
+ * on a 2.4-tall body (under three heads — full bobblehead), a skirt whose hem
+ * was wider than the arms hung, so the arms disappeared inside it, and feet
+ * that ended up buried below the floor. These numbers fix that. She reads at
+ * just under four heads tall, the hem clears the arms, and the soles sit on
+ * the ground.
+ */
+const BODY = {
+    headRadius: 0.3,
+    headY: 2.02,
+    neckTop: 1.72,
+    shoulderY: 1.55,
+    shoulderX: 0.275,
+    upperArm: 0.42,
+    lowerArm: 0.38,
+    armRadius: 0.088,
+    hipY: 0.95,
+    hipX: 0.16,
+    upperLeg: 0.44,
+    lowerLeg: 0.4,
+    legRadius: 0.105,
+    waistY: 1.05,
+    hemY: 0.72,
+    hemRadius: 0.36,
+};
+/**
+ * One capsule per segment. The rounded cap *is* the joint, so an elbow no
+ * longer shows the seam where a cylinder met a sphere, and a bent limb keeps
+ * a continuous silhouette.
+ */
+function buildLimb(parent, socket, upperLength, lowerLength, radius, material) {
     const pivot = new THREE.Group();
-    pivot.position.set(...shoulder);
+    pivot.position.set(...socket);
     parent.add(pivot);
-    addCylinder(pivot, radius * 0.88, radius, upperLength, [0, -upperLength / 2, 0], material, 16);
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(radius, Math.max(0.01, upperLength - radius * 2), 6, 18), material);
+    upper.position.y = -upperLength / 2;
+    upper.castShadow = true;
+    upper.receiveShadow = true;
+    pivot.add(upper);
     const lower = new THREE.Group();
     lower.position.y = -upperLength;
     pivot.add(lower);
-    addCylinder(lower, radius * 0.72, radius * 0.85, lowerLength, [0, -lowerLength / 2, 0], material, 16);
-    addSphere(lower, radius * 0.92, [0, -lowerLength, 0], shoeMaterial ?? material, [1.15, 0.8, 1.45]);
+    // The forearm and shin taper, which is most of what reads as "limb" rather
+    // than "tube".
+    const distal = new THREE.Mesh(new THREE.CapsuleGeometry(radius * 0.85, Math.max(0.01, lowerLength - radius * 1.7), 6, 18), material);
+    distal.position.y = -lowerLength / 2;
+    distal.castShadow = true;
+    distal.receiveShadow = true;
+    lower.add(distal);
     return { pivot, lower };
+}
+/** A palm with a thumb — the old hand was a bare torus ring. */
+function addHand(limb, side, length, palette) {
+    const hand = new THREE.Group();
+    hand.position.y = -length;
+    limb.lower.add(hand);
+    const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.055, 4, 14), palette.skin);
+    palm.position.y = -0.055;
+    palm.scale.set(1, 1, 0.74);
+    palm.castShadow = true;
+    hand.add(palm);
+    const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.045, 3, 10), palette.skin);
+    thumb.position.set(side * 0.05, -0.045, 0.022);
+    thumb.rotation.z = side * -0.75;
+    thumb.castShadow = true;
+    hand.add(thumb);
+    return hand;
+}
+/** A shoe with a sole and a toe, sitting on the floor rather than under it. */
+function addFoot(limb, length, palette) {
+    const ankle = new THREE.Group();
+    ankle.position.y = -length;
+    limb.lower.add(ankle);
+    const cuff = new THREE.Mesh(new THREE.CapsuleGeometry(0.095, 0.1, 4, 14), palette.sock);
+    cuff.position.y = 0.08;
+    cuff.castShadow = true;
+    ankle.add(cuff);
+    const shoe = roundedBox([0.155, 0.105, 0.25], palette.shoe, 0.05);
+    shoe.position.set(0, -0.048, 0.045);
+    ankle.add(shoe);
+    const sole = roundedBox([0.16, 0.035, 0.255], palette.dark, 0.016);
+    sole.position.set(0, -0.088, 0.045);
+    ankle.add(sole);
+    return ankle;
 }
 function buildGirl(scene, palette) {
     const root = new THREE.Group();
     root.position.copy(HOME);
-    root.rotation.y = Math.PI;
+    root.rotation.y = HOME_FACING;
     scene.add(root);
-    const { skin, denim, denimLight, shirt, hair, hairLight, dark, eyeWhite, iris, shoe, sock, hairTie, } = palette;
+    const { skin, denim, denimLight, shirt, hair, hairLight, dark, eyeWhite, iris, hairTie, } = palette;
     const pupil = new THREE.MeshBasicMaterial({ color: 0x201a19, toneMapped: false });
     const cheek = new THREE.MeshBasicMaterial({ color: 0xe99083, transparent: true, opacity: 0.42, toneMapped: false });
     const stitch = new THREE.MeshBasicMaterial({ color: 0xf0c693, toneMapped: false });
+    // ─── torso ───
+    // The animation scales and rotates this group, so it sits at the hip line
+    // and everything above is built in its local space.
     const torso = new THREE.Group();
-    torso.position.y = 0.86;
+    torso.position.y = BODY.hipY;
     root.add(torso);
-    addBox(torso, [0.72, 0.74, 0.38], [0, 0.62, 0], shirt, 0.16);
-    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.7, 0.82, 20), denim);
-    skirt.position.y = 0.11;
+    const chestHeight = BODY.shoulderY - BODY.waistY + 0.1;
+    const chest = roundedBox([0.44, chestHeight, 0.27], shirt, 0.12);
+    chest.position.y = BODY.waistY - BODY.hipY + chestHeight / 2 - 0.02;
+    torso.add(chest);
+    // A short pinafore, narrow enough that the arms hang clear of the hem.
+    const skirtHeight = BODY.waistY - BODY.hemY;
+    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.25, BODY.hemRadius, skirtHeight, 26, 1, true), denim);
+    skirt.position.y = BODY.waistY - BODY.hipY - skirtHeight / 2;
+    skirt.material.side = THREE.DoubleSide;
     skirt.castShadow = true;
+    skirt.receiveShadow = true;
     torso.add(skirt);
-    addBox(torso, [0.12, 0.78, 0.04], [-0.22, 0.58, 0.22], denimLight, 0.025);
-    addBox(torso, [0.12, 0.78, 0.04], [0.22, 0.58, 0.22], denimLight, 0.025);
-    addBox(torso, [0.55, 0.36, 0.04], [0, 0.43, 0.225], denim, 0.04);
-    addSphere(torso, 0.035, [-0.15, 0.48, 0.252], dark);
-    addSphere(torso, 0.035, [0.15, 0.48, 0.252], dark);
-    addBox(torso, [0.58, 0.035, 0.025], [0, 0.02, 0.36], stitch, 0.01);
-    addBox(torso, [0.22, 0.2, 0.025], [-0.31, 0.18, 0.35], denimLight, 0.04);
-    addBox(torso, [0.22, 0.2, 0.025], [0.31, 0.18, 0.35], denimLight, 0.04);
-    addBox(torso, [0.66, 0.07, 0.39], [0, 0.83, 0], denimLight, 0.035);
-    addCylinder(root, 0.12, 0.14, 0.22, [0, 1.7, 0], skin, 18);
-    const head = new THREE.Group();
-    head.position.set(0, 1.95, 0);
-    root.add(head);
-    addSphere(head, 0.43, [0, 0, 0], skin, [0.94, 1.06, 0.92]);
-    addSphere(head, 0.43, [0, 0.12, -0.12], hair, [1, 1.02, 0.8]);
-    const face = addSphere(head, 0.39, [0, -0.03, 0.08], skin, [0.94, 1.02, 0.84]);
-    face.castShadow = false;
-    addSphere(head, 0.075, [-0.405, -0.01, 0.04], skin, [0.45, 1, 0.8]);
-    addSphere(head, 0.075, [0.405, -0.01, 0.04], skin, [0.45, 1, 0.8]);
-    addSphere(head, 0.045, [0, -0.055, 0.415], skin, [0.7, 0.8, 0.55]);
-    const eyes = [];
-    for (const x of [-0.14, 0.14]) {
-        const eye = new THREE.Group();
-        eye.position.set(x, 0.035, 0.407);
-        head.add(eye);
-        addSphere(eye, 0.066, [0, 0, 0], eyeWhite, [0.78, 1, 0.35]);
-        addSphere(eye, 0.039, [0, -0.002, 0.048], iris, [0.78, 1, 0.34]);
-        addSphere(eye, 0.023, [0, -0.003, 0.071], pupil, [0.75, 1, 0.3]);
-        addSphere(eye, 0.008, [-0.01, 0.015, 0.085], eyeWhite, [1, 1, 0.42]);
-        eyes.push(eye);
-        const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.105, 4, 8), dark);
-        brow.position.set(x, 0.155, 0.394);
-        brow.rotation.z = Math.PI / 2 + (x < 0 ? 1 : -1) * 0.11;
-        brow.scale.z = 0.5;
-        head.add(brow);
+    const hem = new THREE.Mesh(new THREE.TorusGeometry(BODY.hemRadius, 0.022, 8, 34), denimLight);
+    hem.rotation.x = Math.PI / 2;
+    hem.position.y = BODY.hemY - BODY.hipY;
+    hem.castShadow = true;
+    torso.add(hem);
+    // Bib and straps, so the pinafore reads as worn over the shirt.
+    const bib = roundedBox([0.28, 0.26, 0.05], denim, 0.03);
+    bib.position.set(0, BODY.waistY - BODY.hipY + 0.16, 0.13);
+    torso.add(bib);
+    for (const side of [-1, 1]) {
+        const strap = roundedBox([0.075, 0.48, 0.04], denimLight, 0.02);
+        strap.position.set(side * 0.13, BODY.waistY - BODY.hipY + 0.3, 0.115);
+        strap.rotation.z = side * 0.05;
+        torso.add(strap);
+        const button = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.014, 12), dark);
+        button.position.set(side * 0.11, BODY.waistY - BODY.hipY + 0.27, 0.16);
+        button.rotation.x = Math.PI / 2;
+        torso.add(button);
     }
-    addSphere(head, 0.07, [-0.245, -0.085, 0.39], cheek, [1.3, 0.42, 0.2]);
-    addSphere(head, 0.07, [0.245, -0.085, 0.39], cheek, [1.3, 0.42, 0.2]);
-    // A layered, directional fringe reads as hair strands instead of a row of beads.
-    const fringeLocks = [
-        { x: -0.25, y: 0.255, length: 0.2, angle: -0.42 },
-        { x: -0.13, y: 0.29, length: 0.25, angle: -0.2 },
-        { x: 0, y: 0.31, length: 0.22, angle: 0.04 },
-        { x: 0.13, y: 0.29, length: 0.25, angle: 0.2 },
-        { x: 0.25, y: 0.255, length: 0.2, angle: 0.42 },
+    const waistband = roundedBox([0.4, 0.055, 0.25], denimLight, 0.02);
+    waistband.position.y = BODY.waistY - BODY.hipY;
+    torso.add(waistband);
+    const trim = roundedBox([0.3, 0.02, 0.02], stitch, 0.008);
+    trim.position.set(0, BODY.waistY - BODY.hipY + 0.03, 0.145);
+    torso.add(trim);
+    // Collar and sleeve caps close the gap where the arm meets the body.
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.03, 8, 22), shirt);
+    collar.rotation.x = Math.PI / 2;
+    collar.position.y = BODY.shoulderY - BODY.hipY + 0.06;
+    collar.castShadow = true;
+    torso.add(collar);
+    for (const side of [-1, 1]) {
+        const sleeve = new THREE.Mesh(new THREE.SphereGeometry(0.115, 20, 14), shirt);
+        sleeve.position.set(side * BODY.shoulderX, BODY.shoulderY - BODY.hipY, 0);
+        sleeve.scale.set(1, 0.86, 1);
+        sleeve.castShadow = true;
+        torso.add(sleeve);
+    }
+    const neck = new THREE.Mesh(new THREE.CapsuleGeometry(0.078, 0.09, 4, 14), skin);
+    neck.position.y = (BODY.shoulderY + BODY.neckTop) / 2;
+    neck.castShadow = true;
+    root.add(neck);
+    // ─── head ───
+    // One sphere, not two. The old build stacked a second "face" sphere in front
+    // of the skull, and the overlap showed as a lump along the jaw.
+    const head = new THREE.Group();
+    head.position.set(0, BODY.headY, 0);
+    root.add(head);
+    const R = BODY.headRadius;
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(R, 40, 30), skin);
+    skull.scale.set(0.97, 1.06, 0.95);
+    skull.castShadow = true;
+    skull.receiveShadow = true;
+    head.add(skull);
+    for (const side of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(R * 0.19, 14, 12), skin);
+        ear.position.set(side * R * 0.94, -0.01, 0.01);
+        ear.scale.set(0.5, 1, 0.78);
+        ear.castShadow = true;
+        head.add(ear);
+    }
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(R * 0.1, 12, 10), skin);
+    nose.position.set(0, -R * 0.14, R * 0.92);
+    nose.scale.set(0.85, 0.7, 0.6);
+    head.add(nose);
+    const eyes = [];
+    for (const side of [-1, 1]) {
+        const eye = new THREE.Group();
+        eye.position.set(side * R * 0.34, R * 0.08, R * 0.855);
+        head.add(eye);
+        addSphere(eye, R * 0.175, [0, 0, 0], eyeWhite, [0.84, 1, 0.34]);
+        addSphere(eye, R * 0.116, [0, -0.004, 0.038], iris, [0.84, 1, 0.32]);
+        addSphere(eye, R * 0.066, [0, -0.006, 0.058], pupil, [0.82, 1, 0.28]);
+        addSphere(eye, R * 0.022, [-side * 0.014, 0.017, 0.064], eyeWhite, [1, 1, 0.4]);
+        eyes.push(eye);
+        const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.075, 4, 10), dark);
+        brow.position.set(side * R * 0.34, R * 0.42, R * 0.82);
+        brow.rotation.z = Math.PI / 2 - side * 0.13;
+        brow.scale.z = 0.45;
+        head.add(brow);
+        const blush = new THREE.Mesh(new THREE.SphereGeometry(R * 0.19, 14, 12), cheek);
+        blush.position.set(side * R * 0.6, -R * 0.28, R * 0.76);
+        blush.scale.set(1.25, 0.5, 0.2);
+        head.add(blush);
+    }
+    const smile = new THREE.Mesh(new THREE.TorusGeometry(R * 0.22, 0.011, 6, 22, Math.PI), dark);
+    smile.position.set(0, -R * 0.36, R * 0.84);
+    smile.rotation.z = Math.PI;
+    head.add(smile);
+    // ─── hair ───
+    // A cap that hugs the skull rather than a second sphere parked behind it.
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(R * 1.06, 40, 26, 0, Math.PI * 2, 0, Math.PI * 0.58), hair);
+    cap.scale.set(0.99, 1.08, 0.98);
+    cap.position.y = -R * 0.02;
+    cap.castShadow = true;
+    head.add(cap);
+    const nape = new THREE.Mesh(new THREE.SphereGeometry(R * 1.04, 32, 24, 0, Math.PI * 2, Math.PI * 0.32, Math.PI * 0.42), hair);
+    nape.scale.set(0.99, 1.06, 0.86);
+    nape.position.set(0, -R * 0.02, -R * 0.13);
+    nape.castShadow = true;
+    head.add(nape);
+    // A swept fringe: overlapping locks of two lengths, angled across the brow,
+    // instead of the old row of evenly spaced beads.
+    const fringe = [
+        { x: -0.72, y: 0.62, length: 0.15, tilt: -0.5 },
+        { x: -0.42, y: 0.72, length: 0.2, tilt: -0.26 },
+        { x: -0.12, y: 0.76, length: 0.17, tilt: -0.08 },
+        { x: 0.2, y: 0.74, length: 0.21, tilt: 0.16 },
+        { x: 0.5, y: 0.68, length: 0.16, tilt: 0.38 },
+        { x: 0.74, y: 0.58, length: 0.13, tilt: 0.58 },
     ];
-    fringeLocks.forEach((lock, index) => {
-        const strand = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, lock.length, 5, 10), index % 2 ? hairLight : hair);
-        strand.position.set(lock.x, lock.y - lock.length * 0.42, 0.337);
-        strand.rotation.set(0.12, 0, lock.angle);
-        strand.scale.z = 0.42;
+    fringe.forEach((lock, index) => {
+        const strand = new THREE.Mesh(new THREE.CapsuleGeometry(0.042, lock.length, 5, 12), index % 2 ? hairLight : hair);
+        strand.position.set(lock.x * R, lock.y * R - lock.length * 0.42, R * 0.76);
+        strand.rotation.set(0.2, 0, lock.tilt);
+        strand.scale.z = 0.4;
         strand.castShadow = true;
         head.add(strand);
     });
     for (const side of [-1, 1]) {
-        const sideLock = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.24, 5, 10), hair);
-        sideLock.position.set(side * 0.335, 0.05, 0.265);
-        sideLock.rotation.set(0.05, 0, side * -0.16);
-        sideLock.scale.z = 0.48;
+        const sideLock = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.2, 5, 12), hair);
+        sideLock.position.set(side * R * 0.86, -R * 0.16, R * 0.42);
+        sideLock.rotation.set(0.06, 0, side * -0.2);
+        sideLock.scale.z = 0.5;
         sideLock.castShadow = true;
         head.add(sideLock);
     }
-    const smile = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 6, 20, Math.PI), new THREE.MeshBasicMaterial({ color: 0xa35045, toneMapped: false }));
-    smile.position.set(0, -0.12, 0.41);
-    smile.rotation.z = Math.PI;
-    head.add(smile);
+    // ─── ponytails ───
     const ponytails = [];
     for (const side of [-1, 1]) {
         const pony = new THREE.Group();
-        pony.position.set(side * 0.39, 0.15, -0.05);
-        pony.rotation.z = side * -0.35;
+        pony.position.set(side * R * 0.86, R * 0.2, -R * 0.5);
+        pony.rotation.set(-0.2, 0, side * -0.5);
         head.add(pony);
-        addSphere(pony, 0.105, [0, 0, 0], hairTie, [1.2, 0.72, 1]);
+        const tie = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.026, 8, 18), hairTie);
+        tie.rotation.y = Math.PI / 2;
+        tie.castShadow = true;
+        pony.add(tie);
+        // A tail that actually tapers along its length.
         for (let segment = 0; segment < 3; segment += 1) {
-            const lock = new THREE.Mesh(new THREE.CapsuleGeometry(0.12 - segment * 0.018, 0.17 + segment * 0.015, 6, 12), segment === 1 ? hairLight : hair);
-            lock.position.set(side * (0.07 + segment * 0.035), -0.14 - segment * 0.2, 0);
-            lock.rotation.z = side * (-0.12 - segment * 0.08);
-            lock.scale.z = 0.78;
+            const lock = new THREE.Mesh(new THREE.CapsuleGeometry(0.075 - segment * 0.016, 0.13 + segment * 0.02, 6, 14), segment === 1 ? hairLight : hair);
+            lock.position.set(side * (0.05 + segment * 0.03), -0.11 - segment * 0.15, -0.01);
+            lock.rotation.z = side * (-0.14 - segment * 0.09);
+            lock.scale.z = 0.82;
             lock.castShadow = true;
             pony.add(lock);
         }
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.25, 14), hair);
-        tip.position.set(side * 0.2, -0.76, 0);
-        tip.rotation.set(Math.PI, 0, side * 0.22);
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.048, 0.17, 14), hair);
+        tip.position.set(side * 0.16, -0.55, -0.01);
+        tip.rotation.set(Math.PI, 0, side * 0.28);
         tip.castShadow = true;
         pony.add(tip);
         ponytails.push(pony);
     }
-    const leftArm = buildLimb(root, [-0.47, 1.58, 0], 0.62, 0.56, 0.12, skin);
-    const rightArm = buildLimb(root, [0.47, 1.58, 0], 0.62, 0.56, 0.12, skin);
-    const leftLeg = buildLimb(root, [-0.26, 0.9, 0], 0.52, 0.55, 0.14, skin, shoe);
-    const rightLeg = buildLimb(root, [0.26, 0.9, 0], 0.52, 0.55, 0.14, skin, shoe);
-    addSphere(root, 0.19, [-0.47, 1.58, 0], shirt, [1, 0.82, 1]);
-    addSphere(root, 0.19, [0.47, 1.58, 0], shirt, [1, 0.82, 1]);
-    addSphere(leftArm.lower, 0.13, [0, 0, 0], skin);
-    addSphere(rightArm.lower, 0.13, [0, 0, 0], skin);
-    addSphere(leftLeg.lower, 0.15, [0, 0, 0], skin);
-    addSphere(rightLeg.lower, 0.15, [0, 0, 0], skin);
-    addCylinder(leftLeg.lower, 0.145, 0.145, 0.23, [0, -0.43, 0], sock, 16);
-    addCylinder(rightLeg.lower, 0.145, 0.145, 0.23, [0, -0.43, 0], sock, 16);
-    for (const arm of [leftArm, rightArm]) {
-        const grip = new THREE.Mesh(new THREE.TorusGeometry(0.092, 0.034, 8, 20), skin);
-        grip.position.set(0, -0.56, 0);
-        grip.rotation.y = Math.PI / 2;
-        grip.castShadow = true;
-        arm.lower.add(grip);
-    }
+    // ─── limbs ───
+    const leftArm = buildLimb(root, [-BODY.shoulderX, BODY.shoulderY, 0], BODY.upperArm, BODY.lowerArm, BODY.armRadius, skin);
+    const rightArm = buildLimb(root, [BODY.shoulderX, BODY.shoulderY, 0], BODY.upperArm, BODY.lowerArm, BODY.armRadius, skin);
+    const leftLeg = buildLimb(root, [-BODY.hipX, BODY.hipY, 0], BODY.upperLeg, BODY.lowerLeg, BODY.legRadius, skin);
+    const rightLeg = buildLimb(root, [BODY.hipX, BODY.hipY, 0], BODY.upperLeg, BODY.lowerLeg, BODY.legRadius, skin);
+    addHand(leftArm, -1, BODY.lowerArm, palette);
+    addHand(rightArm, 1, BODY.lowerArm, palette);
+    addFoot(leftLeg, BODY.lowerLeg, palette);
+    addFoot(rightLeg, BODY.lowerLeg, palette);
     return { root, torso, head, eyes, leftArm, rightArm, leftLeg, rightLeg, ponytails };
 }
 function makeDust(scene, sprite) {
@@ -1055,7 +1203,7 @@ export function createDreamRoom(mount, handlers) {
         state = "idle";
         phase = 0;
         girl.root.position.copy(HOME);
-        girl.root.rotation.set(0, Math.PI, 0);
+        girl.root.rotation.set(0, HOME_FACING, 0);
         doorTarget = 0;
         setActive("idle");
         setStatus(IDLE_STATUS);
@@ -1165,7 +1313,7 @@ export function createDreamRoom(mount, handlers) {
         if (state === "tree-walk") {
             const p = ease(phase / 3.1);
             girl.root.position.lerpVectors(HOME, TREE_BASE, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(Math.PI, -Math.PI / 2, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, -Math.PI / 2, p);
             setWalkPose(girl, elapsed);
             if (phase > 3.1)
                 transition("tree-climb", "她正在沿着树干向上爬…");
@@ -1258,7 +1406,7 @@ export function createDreamRoom(mount, handlers) {
         else if (state === "tree-return") {
             const p = ease(phase / 2.7);
             girl.root.position.lerpVectors(TREE_LAND, HOME, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(0, Math.PI, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(0, HOME_FACING, p);
             setWalkPose(girl, elapsed);
             if (phase > 2.7)
                 returnIdle();
@@ -1266,7 +1414,7 @@ export function createDreamRoom(mount, handlers) {
         else if (state === "piano-walk") {
             const p = ease(phase / 3.4);
             girl.root.position.lerpVectors(HOME, PIANO_SEAT, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(Math.PI, -Math.PI / 2, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, -Math.PI / 2, p);
             setWalkPose(girl, elapsed);
             if (phase > 3.4)
                 transition("piano-sit", "她在琴凳上坐好，双手轻轻放上琴键");
@@ -1317,7 +1465,7 @@ export function createDreamRoom(mount, handlers) {
         else if (state === "piano-return") {
             const p = ease(phase / 3.25);
             girl.root.position.lerpVectors(PIANO_SEAT, HOME, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(-Math.PI / 2, Math.PI, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(-Math.PI / 2, HOME_FACING, p);
             setWalkPose(girl, elapsed, ease(Math.max(0, (p - 0.12) / 0.88)));
             if (p < 0.18) {
                 const seated = 1 - ease(p / 0.18);
@@ -1332,7 +1480,7 @@ export function createDreamRoom(mount, handlers) {
         else if (state === "desk-walk") {
             const p = ease(phase / 3.25);
             girl.root.position.lerpVectors(HOME, DESK_SEAT, p);
-            girl.root.rotation.y = Math.PI;
+            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, Math.PI, Math.min(1, p / 0.3));
             setWalkPose(girl, elapsed);
             if (phase > 3.25)
                 transition("desk-sit", "她拉开椅子，在书桌前坐下");
@@ -1378,7 +1526,7 @@ export function createDreamRoom(mount, handlers) {
         else if (state === "desk-return") {
             const p = ease(phase / 3.0);
             girl.root.position.lerpVectors(DESK_SEAT, HOME, p);
-            girl.root.rotation.y = Math.PI;
+            girl.root.rotation.y = THREE.MathUtils.lerp(Math.PI, HOME_FACING, ease(Math.max(0, (p - 0.5) / 0.5)));
             setWalkPose(girl, elapsed, ease(Math.max(0, (p - 0.12) / 0.88)));
             if (p < 0.18) {
                 const seated = 1 - ease(p / 0.18);
@@ -1393,7 +1541,7 @@ export function createDreamRoom(mount, handlers) {
         else if (state === "door-walk") {
             const p = ease(phase / 4.1);
             girl.root.position.lerpVectors(HOME, DOOR_FRONT, p);
-            girl.root.rotation.y = THREE.MathUtils.lerp(Math.PI, Math.PI, p);
+            girl.root.rotation.y = THREE.MathUtils.lerp(HOME_FACING, Math.PI, Math.min(1, p / 0.3));
             setWalkPose(girl, elapsed);
             if (phase > 4.1)
                 transition("door-open", "她伸手推开了通往大海的门…");
