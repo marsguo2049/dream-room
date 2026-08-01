@@ -24,6 +24,16 @@ const RELEASE_POINT = new THREE.Vector3(BAR_ANCHOR.x, BAR_ANCHOR.y - Math.cos(RE
 const DOOR_FRONT = new THREE.Vector3(3.45, 0, -2.9);
 const PIANO_SEAT = new THREE.Vector3(-4.55, 0, 2.3);
 const DESK_SEAT = new THREE.Vector3(3.55, 0, 2.65);
+// Floating, the root origin sits well below the waterline: her waist lands on
+// the surface at y ≈ 0.13 and everything below it is under the water.
+const FLOAT_Y = -0.82;
+const SWIM_HOME = new THREE.Vector3(3.3, FLOAT_Y, -8.35);
+// She drifts left, across the glazed wall. Straight out from the door she is
+// invisible: the sight line from the default camera crosses the wall plane at
+// x ≈ 5.5, a few centimetres past the edge of the opening.
+const SWIM_DRIFT = new THREE.Vector3(-1.3, FLOAT_Y, -9.3);
+const SWIM_EXIT = new THREE.Vector3(3.62, FLOAT_Y + 0.12, -7.05);
+const SEA_SHORE = new THREE.Vector3(3.6, 0, -6.8);
 // The camera is penned into the +Z half of the room, so a girl facing -Z
 // showed the viewer nothing but the back of her head. At rest she stands at
 // three-quarters to the default camera, which is where her face reads best.
@@ -1141,6 +1151,57 @@ function makeDust(scene, sprite) {
     scene.add(dust);
     return dust;
 }
+/**
+ * A swim ring, parented to the girl so it rides with her, hidden until she
+ * surfaces. Four quarter-arcs alternating red and white — the classic one.
+ */
+function buildSwimRing(parent) {
+    const ring = new THREE.Group();
+    ring.position.y = 1.02;
+    ring.visible = false;
+    parent.add(ring);
+    const skin = (color) => new THREE.MeshPhysicalMaterial({
+        color,
+        roughness: 0.32,
+        metalness: 0,
+        clearcoat: 0.85,
+        clearcoatRoughness: 0.11,
+        envMapIntensity: 1.1,
+    });
+    const red = skin(0xdf4a3d);
+    const white = skin(0xf5f1e6);
+    for (let i = 0; i < 4; i += 1) {
+        const quarter = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.145, 16, 26, Math.PI / 2), i % 2 ? white : red);
+        // Euler XYZ applies Z first, so this spins the arc around the ring and
+        // then lays the whole thing flat.
+        quarter.rotation.set(-Math.PI / 2, 0, (i * Math.PI) / 2);
+        quarter.castShadow = true;
+        quarter.receiveShadow = true;
+        ring.add(quarter);
+    }
+    return ring;
+}
+/**
+ * Floating in the ring: arms sculling out over the rim, a slow flutter kick
+ * below, and the whole body rocking with the swell. The old pose was a front
+ * crawl, which is not something you do while sitting in a ring.
+ */
+function setPaddlePose(rig, clock, effort = 1) {
+    const stroke = clock * 2.4 * effort;
+    rig.leftArm.pivot.rotation.z = 0.92 + Math.sin(stroke) * 0.2;
+    rig.rightArm.pivot.rotation.z = -0.92 - Math.sin(stroke + Math.PI) * 0.2;
+    rig.leftArm.pivot.rotation.x = -0.2 + Math.sin(stroke) * 0.5;
+    rig.rightArm.pivot.rotation.x = -0.2 + Math.sin(stroke + Math.PI) * 0.5;
+    rig.leftArm.lower.rotation.x = 0.3 + Math.max(0, Math.sin(stroke)) * 0.55;
+    rig.rightArm.lower.rotation.x = 0.3 + Math.max(0, Math.sin(stroke + Math.PI)) * 0.55;
+    const kick = clock * 4.1 * effort;
+    rig.leftLeg.pivot.rotation.x = -0.52 + Math.sin(kick) * 0.3;
+    rig.rightLeg.pivot.rotation.x = -0.52 + Math.sin(kick + Math.PI) * 0.3;
+    rig.leftLeg.lower.rotation.x = 0.6 + Math.max(0, Math.sin(kick)) * 0.28;
+    rig.rightLeg.lower.rotation.x = 0.6 + Math.max(0, Math.sin(kick + Math.PI)) * 0.28;
+    rig.torso.rotation.x = 0.07 + Math.sin(clock * 1.9) * 0.03;
+    rig.head.rotation.x = -0.06;
+}
 function setWalkPose(rig, clock, amount = 1) {
     const cycle = clock * 6.65;
     const stride = Math.sin(cycle);
@@ -1247,6 +1308,7 @@ export function createDreamRoom(mount, handlers) {
     const piano = buildPiano(scene, palette, interactive);
     const studyDesk = buildDesk(scene, palette, glowFalloff, interactive);
     const girl = buildGirl(scene, palette);
+    const swimRing = buildSwimRing(girl.root);
     const dust = makeDust(scene, glowFalloff);
     // Ambient occlusion under anything heavy, so nothing floats.
     addContactShadow(scene, softShadow, [-5.95, 2.3], [2.9, 3.6], 0.55);
@@ -1305,6 +1367,8 @@ export function createDreamRoom(mount, handlers) {
     let queued = null;
     let doorTarget = 0;
     const downAt = new THREE.Vector3();
+    const surfaceAt = new THREE.Vector3();
+    let surfaceFacing = Math.PI;
     let audioContext = null;
     const ensureAudio = () => {
         audioContext ??= new AudioContext();
@@ -1365,6 +1429,7 @@ export function createDreamRoom(mount, handlers) {
         phase = 0;
         girl.root.position.copy(HOME);
         girl.root.rotation.set(0, HOME_FACING, 0);
+        swimRing.visible = false;
         doorTarget = 0;
         setActive("idle");
         setStatus(IDLE_STATUS);
@@ -1734,26 +1799,89 @@ export function createDreamRoom(mount, handlers) {
             girl.leftArm.pivot.rotation.x = -1.5 * p;
             girl.rightArm.pivot.rotation.x = -1.5 * p;
             if (phase > 1.6)
-                transition("swimming", "她正在门外的大海里游泳 · 点击重置可回到房间");
+                transition("swim-surface", "扑通！她钻出水面，套住了漂过来的泳圈");
+        }
+        else if (state === "swim-surface") {
+            // Come up out of the dive: the body rotates from face-down to upright
+            // and the ring grows in, so there is no cut between the two poses.
+            const p = ease(phase / 1.2);
+            girl.root.position.lerpVectors(new THREE.Vector3(3.25, 0.38, -8.2), SWIM_HOME, p);
+            // She turns around to face the house as she comes up.
+            girl.root.rotation.set(THREE.MathUtils.lerp(-Math.PI / 2, 0.05, p), THREE.MathUtils.lerp(Math.PI, 0.25, p), 0);
+            setPaddlePose(girl, phase, p);
+            girl.head.rotation.x = THREE.MathUtils.lerp(0.3, -0.06, p);
+            swimRing.visible = true;
+            swimRing.scale.setScalar(ease(Math.min(1, phase / 0.55)));
+            if (phase > 1.2)
+                transition("swimming", "她套着泳圈，在门外的海上慢慢漂着…");
         }
         else if (state === "swimming") {
             const swim = phase;
-            girl.root.position.set(3.25 + Math.sin(swim * 0.45) * 0.9, 0.42 + Math.sin(swim * 2.1) * 0.06, -8.2 - Math.min(swim * 0.12, 2.2));
-            girl.root.rotation.set(-Math.PI / 2 + Math.sin(swim * 1.2) * 0.04, Math.PI, 0);
-            const stroke = swim * 2.85;
-            const leftStroke = Math.sin(stroke);
-            const rightStroke = Math.sin(stroke + Math.PI);
-            girl.leftArm.pivot.rotation.x = -1.05 + leftStroke * 1.0;
-            girl.rightArm.pivot.rotation.x = -1.05 + rightStroke * 1.0;
-            girl.leftArm.pivot.rotation.z = Math.cos(stroke) * 0.13;
-            girl.rightArm.pivot.rotation.z = -Math.cos(stroke + Math.PI) * 0.13;
-            girl.leftArm.lower.rotation.x = 0.12 + Math.max(0, Math.cos(stroke)) * 0.9;
-            girl.rightArm.lower.rotation.x = 0.12 + Math.max(0, Math.cos(stroke + Math.PI)) * 0.9;
-            girl.leftLeg.pivot.rotation.x = Math.sin(swim * 5.2) * 0.45;
-            girl.rightLeg.pivot.rotation.x = -Math.sin(swim * 5.2) * 0.45;
-            girl.leftLeg.lower.rotation.x = 0.08 + Math.max(0, Math.sin(swim * 5.2)) * 0.18;
-            girl.rightLeg.lower.rotation.x = 0.08 + Math.max(0, -Math.sin(swim * 5.2)) * 0.18;
-            girl.head.rotation.y = Math.max(0, Math.sin(swim * 1.42)) * 0.22;
+            // A lazy drift out and across, rather than a straight line.
+            const drift = ease(Math.min(swim / 8, 1));
+            girl.root.position.set(THREE.MathUtils.lerp(SWIM_HOME.x, SWIM_DRIFT.x, drift) + Math.sin(swim * 0.62) * 0.5, SWIM_HOME.y + Math.sin(swim * 1.9) * 0.055, THREE.MathUtils.lerp(SWIM_HOME.z, SWIM_DRIFT.z, drift) + Math.sin(swim * 0.4) * 0.3);
+            // Upright, facing back at the house, rocking with the swell.
+            girl.root.rotation.set(Math.sin(swim * 1.9 + 0.6) * 0.06, 0.25 + Math.sin(swim * 0.5) * 0.4, Math.sin(swim * 1.35) * 0.07);
+            setPaddlePose(girl, swim);
+            girl.head.rotation.y = Math.sin(swim * 0.72) * 0.3;
+            swimRing.visible = true;
+            if (phase > 9.5) {
+                surfaceAt.copy(girl.root.position);
+                surfaceFacing = girl.root.rotation.y;
+                transition("swim-return", "漂够了，她划着泳圈往岸边回");
+            }
+        }
+        else if (state === "swim-return") {
+            const p = ease(phase / 4.2);
+            girl.root.position.lerpVectors(surfaceAt, SWIM_EXIT, p);
+            girl.root.position.y += Math.sin(phase * 1.9) * 0.045;
+            girl.root.rotation.set(Math.sin(phase * 1.9) * 0.05, THREE.MathUtils.lerp(surfaceFacing, 1.15, ease(Math.min(1, p * 1.4))), Math.sin(phase * 1.3) * 0.05);
+            // Paddling with purpose now, so the stroke runs faster.
+            setPaddlePose(girl, phase, 1.55);
+            girl.head.rotation.y = Math.sin(phase * 0.9) * 0.16;
+            swimRing.visible = true;
+            if (phase > 4.2)
+                transition("sea-exit", "脚踩到沙子了，她抱着泳圈站起来");
+        }
+        else if (state === "sea-exit") {
+            // Standing up in the shallows: the ring comes off over her head and the
+            // legs straighten under her.
+            const p = ease(phase / 1.9);
+            girl.root.position.lerpVectors(SWIM_EXIT, SEA_SHORE, p);
+            girl.root.rotation.set(0, THREE.MathUtils.lerp(1.15, 0, p), 0);
+            const rise = 1 - p;
+            girl.leftLeg.pivot.rotation.x = -0.52 * rise;
+            girl.rightLeg.pivot.rotation.x = -0.52 * rise;
+            girl.leftLeg.lower.rotation.x = 0.6 * rise;
+            girl.rightLeg.lower.rotation.x = 0.6 * rise;
+            girl.leftArm.pivot.rotation.z = 0.92 * rise + 0.1;
+            girl.rightArm.pivot.rotation.z = -0.92 * rise - 0.1;
+            girl.leftArm.pivot.rotation.x = -0.9 * Math.sin(p * Math.PI);
+            girl.rightArm.pivot.rotation.x = -0.9 * Math.sin(p * Math.PI);
+            girl.torso.rotation.x = 0.12 * rise;
+            swimRing.visible = p < 0.72;
+            swimRing.position.y = 1.02 + p * 1.5;
+            swimRing.scale.setScalar(Math.max(0.001, 1 - p * 0.4));
+            if (phase > 1.9) {
+                swimRing.visible = false;
+                swimRing.position.y = 1.02;
+                swimRing.scale.setScalar(1);
+                transition("door-back", "她带着一身海风，走回房间里");
+            }
+        }
+        else if (state === "door-back") {
+            const p = ease(phase / 4.6);
+            if (p < 0.45)
+                girl.root.position.lerpVectors(SEA_SHORE, DOOR_FRONT, p / 0.45);
+            else
+                girl.root.position.lerpVectors(DOOR_FRONT, HOME, (p - 0.45) / 0.55);
+            girl.root.rotation.y = THREE.MathUtils.lerp(0, HOME_FACING, ease(Math.max(0, (p - 0.6) / 0.4)));
+            setWalkPose(girl, elapsed);
+            // The door swings shut once she is back inside.
+            if (p > 0.62)
+                doorTarget = 0;
+            if (phase > 4.6)
+                returnIdle();
         }
         doorHinge.rotation.y = THREE.MathUtils.lerp(doorHinge.rotation.y, doorTarget, 0.075);
         const openness = THREE.MathUtils.clamp(Math.abs(doorHinge.rotation.y) / (Math.PI * 0.52), 0, 1);
