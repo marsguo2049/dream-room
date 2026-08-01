@@ -426,11 +426,11 @@ function createPalette(surfaces: SurfaceFactory) {
       envMapIntensity: 1.3,
     }),
     iris: new THREE.MeshPhysicalMaterial({
-      color: 0x56848b,
-      roughness: 0.14,
+      color: 0x3f6a75,
+      roughness: 0.18,
       clearcoat: 1,
-      clearcoatRoughness: 0.02,
-      envMapIntensity: 1.5,
+      clearcoatRoughness: 0.04,
+      envMapIntensity: 0.55,
     }),
   };
 }
@@ -978,7 +978,17 @@ function buildGirl(scene: THREE.Scene, palette: Palette): GirlRig {
     hairTie,
   } = palette;
   const pupil = new THREE.MeshBasicMaterial({ color: 0x201a19, toneMapped: false });
-  const cheek = new THREE.MeshBasicMaterial({ color: 0xe99083, transparent: true, opacity: 0.42, toneMapped: false });
+  // Blush has to be lit. An unlit basic material at 0.42 sat on the face like
+  // two painted circles instead of colour coming through the skin.
+  const cheek = new THREE.MeshStandardMaterial({
+    color: 0xe08b7c,
+    roughness: 1,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+  });
+  const lashLine = new THREE.MeshStandardMaterial({ color: 0x3d2b22, roughness: 0.7 });
+  const lip = new THREE.MeshStandardMaterial({ color: 0xb4675c, roughness: 0.62 });
   const stitch = new THREE.MeshBasicMaterial({ color: 0xf0c693, toneMapped: false });
 
   // ─── torso ───
@@ -1073,86 +1083,127 @@ function buildGirl(scene: THREE.Scene, palette: Palette): GirlRig {
     head.add(ear);
   }
 
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(R * 0.1, 12, 10), skin);
-  nose.position.set(0, -R * 0.14, R * 0.92);
-  nose.scale.set(0.85, 0.7, 0.6);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(R * 0.115, 14, 12), skin);
+  nose.position.set(0, -R * 0.2, R * 0.9);
+  nose.scale.set(0.8, 0.72, 0.85);
+  nose.castShadow = true;
   head.add(nose);
 
   const eyes: THREE.Group[] = [];
   for (const side of [-1, 1]) {
     const eye = new THREE.Group();
-    eye.position.set(side * R * 0.34, R * 0.08, R * 0.855);
+    eye.position.set(side * R * 0.32, R * 0.02, R * 0.855);
     head.add(eye);
-    addSphere(eye, R * 0.175, [0, 0, 0], eyeWhite, [0.84, 1, 0.34]);
-    addSphere(eye, R * 0.116, [0, -0.004, 0.038], iris, [0.84, 1, 0.32]);
-    addSphere(eye, R * 0.066, [0, -0.006, 0.058], pupil, [0.82, 1, 0.28]);
-    addSphere(eye, R * 0.022, [-side * 0.014, 0.017, 0.064], eyeWhite, [1, 1, 0.4]);
+    addSphere(eye, R * 0.185, [0, 0, 0], eyeWhite, [0.86, 1, 0.32]);
+    addSphere(eye, R * 0.14, [0, -0.004, 0.034], iris, [0.86, 1, 0.3]);
+    // A pupil this size is what stops the eye reading as a flat blue disc.
+    addSphere(eye, R * 0.086, [0, -0.006, 0.052], pupil, [0.84, 1, 0.26]);
+    addSphere(eye, R * 0.03, [-side * 0.017, 0.019, 0.062], eyeWhite, [1, 1, 0.4]);
+
+    // Lash line across the top of the eye. It lives inside the eye group so it
+    // squashes with the blink, and it is what gives the eye an edge to sit in.
+    const lash = new THREE.Mesh(
+      new THREE.TorusGeometry(R * 0.185, 0.0125, 6, 20, Math.PI * 0.95),
+      lashLine,
+    );
+    lash.position.z = 0.012;
+    lash.rotation.z = -Math.PI * 0.025;
+    lash.scale.set(0.88, 1, 0.4);
+    eye.add(lash);
     eyes.push(eye);
 
-    const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.075, 4, 10), dark);
-    brow.position.set(side * R * 0.34, R * 0.42, R * 0.82);
-    brow.rotation.z = Math.PI / 2 - side * 0.13;
-    brow.scale.z = 0.45;
+    const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.0095, 0.07, 4, 10), lashLine);
+    brow.position.set(side * R * 0.32, R * 0.36, R * 0.83);
+    brow.rotation.z = Math.PI / 2 - side * 0.15;
+    brow.scale.z = 0.4;
     head.add(brow);
 
-    const blush = new THREE.Mesh(new THREE.SphereGeometry(R * 0.19, 14, 12), cheek);
-    blush.position.set(side * R * 0.6, -R * 0.28, R * 0.76);
-    blush.scale.set(1.25, 0.5, 0.2);
+    // Small, on the cheekbone, off to the side — not a disc across the face.
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(R * 0.13, 14, 12), cheek);
+    blush.position.set(side * R * 0.66, -R * 0.24, R * 0.74);
+    blush.scale.set(1.1, 0.62, 0.14);
     head.add(blush);
   }
 
-  const smile = new THREE.Mesh(new THREE.TorusGeometry(R * 0.22, 0.011, 6, 22, Math.PI), dark);
-  smile.position.set(0, -R * 0.36, R * 0.84);
-  smile.rotation.z = Math.PI;
+  // The mouth sits lower, so the chin does not read as an empty expanse, and
+  // carries a lower lip so it is a mouth rather than a drawn line.
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(R * 0.2, 0.0135, 6, 24, Math.PI * 0.92), lip);
+  smile.position.set(0, -R * 0.46, R * 0.83);
+  smile.rotation.set(0.12, 0, Math.PI * 1.04);
+  smile.scale.z = 0.55;
   head.add(smile);
 
+  const lowerLip = new THREE.Mesh(new THREE.SphereGeometry(R * 0.11, 14, 10), skin);
+  lowerLip.position.set(0, -R * 0.6, R * 0.78);
+  lowerLip.scale.set(1.1, 0.42, 0.3);
+  head.add(lowerLip);
+
   // ─── hair ───
-  // A cap that hugs the skull rather than a second sphere parked behind it.
+  //
+  // Two shells, and the angles matter. The crown stops above the brow line, so
+  // there is a forehead; the back-and-sides mass is cut out of the phi range so
+  // it wraps to the temples and no further. A cap that ran to 0.58π covered the
+  // face down past the eyes, leaving only the pupils poking through orange.
+  const HAIRLINE = Math.PI * 0.33;
   const cap = new THREE.Mesh(
-    new THREE.SphereGeometry(R * 1.06, 40, 26, 0, Math.PI * 2, 0, Math.PI * 0.58),
+    new THREE.SphereGeometry(R * 1.05, 40, 22, 0, Math.PI * 2, 0, HAIRLINE),
     hair,
   );
-  cap.scale.set(0.99, 1.08, 0.98);
+  cap.scale.set(1, 1.07, 1);
   cap.position.y = -R * 0.02;
+  cap.material.side = THREE.DoubleSide;
   cap.castShadow = true;
   head.add(cap);
 
-  const nape = new THREE.Mesh(
-    new THREE.SphereGeometry(R * 1.04, 32, 24, 0, Math.PI * 2, Math.PI * 0.32, Math.PI * 0.42),
+  // phi 0.5π faces forward, so starting at 0.74π and running 1.52π leaves a
+  // window open across the face and closes everywhere else.
+  const backHair = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 1.05, 36, 26, Math.PI * 0.74, Math.PI * 1.52, Math.PI * 0.18, Math.PI * 0.64),
     hair,
   );
-  nape.scale.set(0.99, 1.06, 0.86);
-  nape.position.set(0, -R * 0.02, -R * 0.13);
-  nape.castShadow = true;
-  head.add(nape);
+  backHair.scale.set(1, 1.07, 1.02);
+  backHair.position.set(0, -R * 0.02, -R * 0.03);
+  backHair.material.side = THREE.DoubleSide;
+  backHair.castShadow = true;
+  head.add(backHair);
 
-  // A swept fringe: overlapping locks of two lengths, angled across the brow,
-  // instead of the old row of evenly spaced beads.
+  // The fringe is a shell too, dipping to just above the brows. Six separate
+  // capsules read as a row of curlers rather than as hair.
+  const bangs = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 1.1, 32, 20, Math.PI * 0.2, Math.PI * 0.6, Math.PI * 0.06, Math.PI * 0.32),
+    hair,
+  );
+  bangs.scale.set(1, 1.06, 1);
+  bangs.position.y = -R * 0.02;
+  bangs.material.side = THREE.DoubleSide;
+  bangs.castShadow = true;
+  head.add(bangs);
+
+  // Three soft locks over the shell, only to break the cut line and give the
+  // sweep a direction.
   const fringe = [
-    { x: -0.72, y: 0.62, length: 0.15, tilt: -0.5 },
-    { x: -0.42, y: 0.72, length: 0.2, tilt: -0.26 },
-    { x: -0.12, y: 0.76, length: 0.17, tilt: -0.08 },
-    { x: 0.2, y: 0.74, length: 0.21, tilt: 0.16 },
-    { x: 0.5, y: 0.68, length: 0.16, tilt: 0.38 },
-    { x: 0.74, y: 0.58, length: 0.13, tilt: 0.58 },
+    { x: -0.46, y: 0.42, length: 0.12, tilt: -0.34 },
+    { x: -0.04, y: 0.46, length: 0.14, tilt: -0.05 },
+    { x: 0.42, y: 0.4, length: 0.11, tilt: 0.36 },
   ];
   fringe.forEach((lock, index) => {
     const strand = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.042, lock.length, 5, 12),
-      index % 2 ? hairLight : hair,
+      new THREE.CapsuleGeometry(0.058, lock.length, 5, 14),
+      index === 1 ? hairLight : hair,
     );
-    strand.position.set(lock.x * R, lock.y * R - lock.length * 0.42, R * 0.76);
-    strand.rotation.set(0.2, 0, lock.tilt);
-    strand.scale.z = 0.4;
+    strand.position.set(lock.x * R, lock.y * R - lock.length * 0.4, R * 0.9);
+    strand.rotation.set(0.3, 0, lock.tilt);
+    strand.scale.z = 0.3;
     strand.castShadow = true;
     head.add(strand);
   });
 
+  // A slim lock in front of each ear, framing the cheek.
   for (const side of [-1, 1]) {
-    const sideLock = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.2, 5, 12), hair);
-    sideLock.position.set(side * R * 0.86, -R * 0.16, R * 0.42);
-    sideLock.rotation.set(0.06, 0, side * -0.2);
-    sideLock.scale.z = 0.5;
+    const sideLock = new THREE.Mesh(new THREE.CapsuleGeometry(0.032, 0.22, 5, 12), hair);
+    sideLock.position.set(side * R * 0.94, -R * 0.2, R * 0.42);
+    sideLock.rotation.set(0.05, 0, side * -0.13);
+    sideLock.scale.z = 0.55;
     sideLock.castShadow = true;
     head.add(sideLock);
   }
