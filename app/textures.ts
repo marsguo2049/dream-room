@@ -445,6 +445,64 @@ export function createSurfaceFactory(anisotropy: number) {
     return resolve(painting, 2.6, 1.4);
   };
 
+  /**
+   * A fired ceramic glaze, for the little house.
+   *
+   * What makes a surface read as glazed pottery rather than as painted wall is
+   * almost entirely in the roughness: the glaze pools very slightly, so the
+   * gloss is uneven across a panel, and it crazes into a fine web of hairline
+   * cracks that catch light a shade duller than the field around them. The
+   * height pass stays deliberately shallow — porcelain is smooth, and any real
+   * relief here would turn the cottage back into stucco.
+   */
+  const ceramicGlaze = (): Surface => {
+    const painting = painter(512);
+    const { size, color, height, rough } = painting;
+    // A mid-grey height field: the glaze deviates in both directions from it.
+    fill(painting, "#ffffff", "#808080", "#4a4a4a");
+
+    // Where the glaze runs thin over an edge the colour lifts; where it pools
+    // it deepens. Both are broad and low-contrast — this multiplies the
+    // material colour, so it must not carry a tint of its own.
+    mottle(color, size, 22, ["rgba(255,255,255,0.18)"], [70, 200], 1201);
+    mottle(color, size, 20, ["rgba(196,190,182,0.16)"], [60, 180], 1207);
+    // Pooled glaze is the glossiest part of the panel.
+    mottle(rough, size, 24, ["rgba(0,0,0,0.34)"], [50, 170], 1213);
+    mottle(rough, size, 16, ["rgba(255,255,255,0.16)"], [40, 120], 1217);
+
+    // Crazing. Each crack walks a short distance and forks, which is what
+    // gives a craquelure its cell structure instead of a scratch pattern.
+    const random = rng(1223);
+    const craze = (x: number, y: number, angle: number, life: number) => {
+      if (life <= 0) return;
+      const length = 12 + random() * 26;
+      const nx = x + Math.cos(angle) * length;
+      const ny = y + Math.sin(angle) * length;
+      for (const [ctx, style, width] of [
+        [color, "rgba(178,170,158,0.3)", 0.9],
+        [height, "rgba(96,96,96,0.5)", 1.1],
+        [rough, "rgba(255,255,255,0.42)", 1.4],
+      ] as const) {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+      }
+      craze(nx, ny, angle + (random() - 0.5) * 1.5, life - 1);
+      if (random() > 0.72) craze(nx, ny, angle + (random() - 0.5) * 2.6, life - 2);
+    };
+    for (let i = 0; i < 34; i += 1) {
+      craze(random() * size, random() * size, random() * Math.PI * 2, 4 + Math.floor(random() * 3));
+    }
+
+    speckle(color, size, 900, 0.03, 1229);
+    // Repeat 1: the house panels are large, and a glaze has no weave to tile.
+    // A single stretched pass keeps the crazing from marching across a wall.
+    return resolve(painting, 1, 0.55);
+  };
+
   /** Ribbed knit for the socks. */
   const knit = (): Surface => {
     const painting = painter(256);
@@ -762,6 +820,7 @@ export function createSurfaceFactory(anisotropy: number) {
     linen,
     denim,
     knit,
+    ceramicGlaze,
     leather,
     paper,
     sand,

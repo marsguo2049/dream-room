@@ -27,11 +27,17 @@ function addBox(parent, size, position, material, radius = 0.05) {
     parent.add(mesh);
     return mesh;
 }
+// Every blob in the garden is the same unit sphere at a different scale.
+// Ninety-odd separate SphereGeometries were ninety-odd buffer uploads for one
+// shape; the radius is a scale, not a new mesh.
+const UNIT_SPHERE = new THREE.SphereGeometry(1, 12, 8);
 function addSphere(parent, radius, position, material, scale = [1, 1, 1]) {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 14, 10), material);
+    const mesh = new THREE.Mesh(UNIT_SPHERE, material);
     mesh.position.set(...position);
-    mesh.scale.set(...scale);
-    mesh.castShadow = true;
+    mesh.scale.set(radius * scale[0], radius * scale[1], radius * scale[2]);
+    // No shadow. These are the flowers and the window-box foliage — ninety small
+    // blobs sitting against a wall or the lawn, whose shadows are a few pixels
+    // each and whose absence from the shadow pass is ninety draw calls a frame.
     parent.add(mesh);
     return mesh;
 }
@@ -48,13 +54,12 @@ function buildWindow(parent, palette, position, size, rotationY = 0, flowers = f
     window.rotation.y = rotationY;
     parent.add(window);
     const [width, height] = size;
-    addBox(window, [width + 0.3, height + 0.3, 0.12], [0, 0, 0], palette.trim, 0.08);
-    addBox(window, [width, height, 0.14], [0, 0, 0.08], palette.windowGlass, 0.04);
-    addBox(window, [0.11, height, 0.11], [0, 0, 0.18], palette.houseTimber, 0.025);
-    addBox(window, [width, 0.11, 0.11], [0, 0, 0.18], palette.houseTimber, 0.025);
-    const warmPane = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.88, height * 0.88), palette.windowGlow);
-    warmPane.position.z = 0.155;
-    window.add(warmPane);
+    // Generous fillets: a moulded ceramic window has no sharp arris anywhere,
+    // and the soft edge is most of what separates it from a printed box.
+    addBox(window, [width + 0.34, height + 0.34, 0.13], [0, 0, 0], palette.houseTrim, 0.16);
+    addBox(window, [width, height, 0.12], [0, 0, 0.08], palette.windowGlass, 0.07);
+    addBox(window, [0.1, height, 0.09], [0, 0, 0.16], palette.houseTrim, 0.04);
+    addBox(window, [width, 0.1, 0.09], [0, 0, 0.16], palette.houseTrim, 0.04);
     if (flowers) {
         addBox(window, [width + 0.34, 0.32, 0.5], [0, -height / 2 - 0.28, 0.34], palette.houseTimber, 0.08);
         const plantY = -height / 2 - 0.08;
@@ -68,24 +73,38 @@ function buildWindow(parent, palette, position, size, rotationY = 0, flowers = f
     }
     return window;
 }
-function buildStoneCourse(parent, palette, z) {
-    let seed = 928371;
-    const random = () => {
-        seed = (seed * 1664525 + 1013904223) >>> 0;
-        return seed / 4294967296;
-    };
-    const rows = 4;
-    for (let row = 0; row < rows; row += 1) {
-        let x = -HOUSE_HALF_X + 0.35 - (row % 2) * 0.26;
-        while (x < HOUSE_HALF_X - 0.25) {
-            const width = 0.68 + random() * 0.58;
-            const height = 0.29 + random() * 0.14;
-            const stone = addBox(parent, [width, height, 0.16], [x + width / 2, 0.2 + row * 0.36, z + random() * 0.025], palette.houseStone, 0.1);
-            stone.rotation.z = (random() - 0.5) * 0.08;
-            stone.scale.y = 0.88 + random() * 0.22;
-            x += width + 0.07;
-        }
+/**
+ * The unglazed foot the whole ornament stands on.
+ *
+ * This was a course of individually laid rubble stones — thirty-odd little
+ * boxes with random rotations. That is how a mason works, and it is exactly
+ * what a moulded ceramic piece never looks like: the base of a glazed cottage
+ * comes out of the same mould as the walls, so it is one continuous band with
+ * a soft shoulder where the glaze line stops. One skirt, four sides, and a
+ * capping bead, instead of thirty stones.
+ */
+function buildFoot(parent, palette) {
+    const height = 1.42;
+    const out = 0.22;
+    const front = HOUSE_HALF_Z + out;
+    const span = HOUSE_HALF_X * 2 + out * 2;
+    // The front breaks either side of the doorway, so the band steps around the
+    // threshold rather than burying the bottom of the door.
+    const cheek = (HOUSE_HALF_X + out - 1.42) / 2 + 1.42;
+    const cheekWidth = HOUSE_HALF_X + out - 1.42;
+    const spans = [
+        [[cheekWidth, height, 0.34], [-cheek, height / 2, front]],
+        [[cheekWidth, height, 0.34], [cheek, height / 2, front]],
+        [[span, height, 0.34], [0, height / 2, -front]],
+        [[0.34, height, HOUSE_HALF_Z * 2 + out * 2], [HOUSE_HALF_X + out, height / 2, 0]],
+        [[0.34, height, HOUSE_HALF_Z * 2 + out * 2], [-HOUSE_HALF_X - out, height / 2, 0]],
+    ];
+    for (const [size, position] of spans) {
+        addBox(parent, size, position, palette.houseStone, 0.14);
     }
+    // The bead that caps the bisque and starts the glaze — the visible seam
+    // between the two firings.
+    addBox(parent, [HOUSE_HALF_X * 2 + out * 2 + 0.14, 0.17, HOUSE_HALF_Z * 2 + out * 2 + 0.14], [0, height, 0], palette.houseTrim, 0.075);
 }
 function buildFlowers(parent, palette) {
     const clusters = [
@@ -112,24 +131,25 @@ function buildRoof(parent, palette) {
     const run = HOUSE_HALF_X + 0.45;
     const length = Math.hypot(run, rise);
     const angle = Math.atan2(rise, run);
+    // Two thick slabs and a bead at the ridge. The eight tile-course seams per
+    // side are gone: a glazed roof is one poured surface, and the seams were
+    // sixteen extra shadow casters buying a texture the glaze already gives.
     for (const side of [-1, 1]) {
-        const plane = addBox(roof, [length, 0.27, HOUSE_HALF_Z * 2 + 1.0], [side * run / 2, UPPER_CEILING + rise / 2, 0], palette.roofTile, 0.08);
+        const plane = addBox(roof, [length, 0.5, HOUSE_HALF_Z * 2 + 1.0], [side * run / 2, UPPER_CEILING + rise / 2, 0], palette.roofTile, 0.24);
         plane.rotation.z = -side * angle;
-        for (let row = 1; row < 9; row += 1) {
-            const t = row / 9;
-            const seam = addBox(roof, [0.075, 0.1, HOUSE_HALF_Z * 2 + 1.04], [side * run * t, RIDGE_Y - rise * t + 0.08, 0], palette.roofEdge, 0.025);
-            seam.rotation.z = -side * angle;
-        }
+        // A rolled lip at the eaves, sitting just past the end of the slab, the
+        // way a mould leaves a thickened edge where the glaze runs off.
+        const eaves = addBox(roof, [0.34, 0.62, HOUSE_HALF_Z * 2 + 1.14], [side * (run + 0.03), UPPER_CEILING - 0.05, 0], palette.roofEdge, 0.17);
+        eaves.rotation.z = -side * angle;
     }
-    addBox(roof, [0.34, 0.34, HOUSE_HALF_Z * 2 + 1.2], [0, RIDGE_Y + 0.05, 0], palette.roofEdge, 0.14);
+    // The ridge bead, proud of both slopes so the two halves of the roof read as
+    // one capped piece rather than as two planes leaning together.
+    addBox(roof, [0.62, 0.52, HOUSE_HALF_Z * 2 + 1.26], [0, RIDGE_Y + 0.2, 0], palette.roofEdge, 0.25);
     const chimney = new THREE.Group();
     chimney.position.set(-4.35, 11.9, -1.55);
     roof.add(chimney);
-    addBox(chimney, [1.25, 3.2, 1.18], [0, 0, 0], palette.houseStone, 0.12);
-    addBox(chimney, [1.48, 0.28, 1.42], [0, 1.65, 0], palette.roofEdge, 0.08);
-    for (const y of [-1.1, -0.45, 0.25, 0.92]) {
-        addBox(chimney, [1.29, 0.08, 1.22], [0, y, 0], palette.roofEdge, 0.025);
-    }
+    addBox(chimney, [1.25, 3.2, 1.18], [0, 0, 0], palette.housePlaster, 0.28);
+    addBox(chimney, [1.52, 0.34, 1.46], [0, 1.63, 0], palette.roofEdge, 0.15);
     return roof;
 }
 export function buildDreamHouse(scene, palette) {
@@ -137,11 +157,22 @@ export function buildDreamHouse(scene, palette) {
     scene.add(house);
     const garden = new THREE.Group();
     house.add(garden);
-    const lawn = new THREE.Mesh(new THREE.PlaneGeometry(26, 17), palette.garden);
+    // An oval, not a rectangle. The lawn was a 26x17 plane whose corners ran
+    // straight off into the backdrop and gave the whole thing away as a flat
+    // card; an ornament sits on a base with a shaped edge, and that edge is most
+    // of what tells you the piece is an object rather than a place.
+    const lawn = new THREE.Mesh(new THREE.CircleGeometry(1, 56), palette.garden);
     lawn.rotation.x = -Math.PI / 2;
-    lawn.position.set(0, -0.08, 8.55);
+    lawn.scale.set(14.5, 10.6, 1);
+    lawn.position.set(0, -0.08, 6.6);
     lawn.receiveShadow = true;
     garden.add(lawn);
+    // The rolled rim of the base, thrown slightly proud of the glaze.
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.022, 6, 72), palette.houseTrim);
+    rim.rotation.x = -Math.PI / 2;
+    rim.scale.set(14.5, 10.6, 1);
+    rim.position.set(0, -0.09, 6.6);
+    garden.add(rim);
     for (let i = 0; i < 10; i += 1) {
         const step = new THREE.Mesh(new THREE.CircleGeometry(0.72 + (i % 3) * 0.08, 24), palette.pathStone);
         step.rotation.x = -Math.PI / 2;
@@ -154,43 +185,47 @@ export function buildDreamHouse(scene, palette) {
     buildFlowers(garden, palette);
     const lowerExterior = new THREE.Group();
     house.add(lowerExterior);
-    addBox(lowerExterior, [HOUSE_HALF_X * 2, GROUND_CEILING, 0.2], [0, GROUND_CEILING / 2, HOUSE_HALF_Z], palette.housePlaster, 0.025);
-    addBox(lowerExterior, [0.2, GROUND_CEILING, HOUSE_HALF_Z * 2], [HOUSE_HALF_X, GROUND_CEILING / 2, 0], palette.housePlaster, 0.025);
-    addBox(lowerExterior, [0.08, GROUND_CEILING, HOUSE_HALF_Z * 2], [-HOUSE_HALF_X - 0.05, GROUND_CEILING / 2, 0], palette.housePlaster, 0.02);
-    buildStoneCourse(lowerExterior, palette, HOUSE_HALF_Z + 0.12);
-    addBox(lowerExterior, [HOUSE_HALF_X * 2 + 0.26, 0.22, 0.26], [0, 1.62, HOUSE_HALF_Z + 0.12], palette.houseTimber, 0.04);
-    addBox(lowerExterior, [HOUSE_HALF_X * 2 + 0.26, 0.24, 0.27], [0, GROUND_CEILING - 0.08, HOUSE_HALF_Z + 0.12], palette.houseTimber, 0.04);
+    // Wall slabs thick enough to carry a real fillet. Slip-cast earthenware has
+    // a wall you can see the thickness of, and the soft arris along every corner
+    // is the single strongest ceramic cue in the whole model.
+    addBox(lowerExterior, [HOUSE_HALF_X * 2, GROUND_CEILING, 0.38], [0, GROUND_CEILING / 2, HOUSE_HALF_Z - 0.09], palette.housePlaster, 0.15);
+    addBox(lowerExterior, [0.38, GROUND_CEILING, HOUSE_HALF_Z * 2], [HOUSE_HALF_X - 0.09, GROUND_CEILING / 2, 0], palette.housePlaster, 0.15);
+    addBox(lowerExterior, [0.3, GROUND_CEILING, HOUSE_HALF_Z * 2], [-HOUSE_HALF_X - 0.05, GROUND_CEILING / 2, 0], palette.housePlaster, 0.12);
+    buildFoot(lowerExterior, palette);
+    // Framing, reduced to two banding lines and a light half-timber. Under a
+    // glaze these read as brushwork on the pot, which is what they should be.
+    addBox(lowerExterior, [HOUSE_HALF_X * 2 + 0.3, 0.2, 0.2], [0, GROUND_CEILING - 0.1, HOUSE_HALF_Z + 0.1], palette.houseTimber, 0.09);
     for (const x of [-5.45, -2.15, 2.15, 5.45]) {
-        addBox(lowerExterior, [0.2, GROUND_CEILING - 1.55, 0.23], [x, 3.62, HOUSE_HALF_Z + 0.12], palette.houseTimber, 0.04);
+        addBox(lowerExterior, [0.16, GROUND_CEILING - 1.72, 0.16], [x, 3.7, HOUSE_HALF_Z + 0.1], palette.houseTimber, 0.07);
     }
     buildWindow(lowerExterior, palette, [-3.55, 3.35, HOUSE_HALF_Z + 0.17], [2.15, 1.95], 0, true);
     buildWindow(lowerExterior, palette, [3.55, 3.35, HOUSE_HALF_Z + 0.17], [2.15, 1.95], 0, true);
     buildWindow(lowerExterior, palette, [HOUSE_HALF_X + 0.17, 3.2, 1.8], [2.1, 1.9], Math.PI / 2, false);
     buildWindow(lowerExterior, palette, [HOUSE_HALF_X + 0.17, 3.2, -2.15], [1.7, 1.9], Math.PI / 2, false);
-    addBox(lowerExterior, [2.25, 3.25, 0.23], [0, 1.68, HOUSE_HALF_Z + 0.2], palette.doorPaint, 0.14);
-    const arch = new THREE.Mesh(new THREE.TorusGeometry(1.18, 0.13, 8, 30, Math.PI), palette.trim);
+    addBox(lowerExterior, [2.25, 3.25, 0.23], [0, 1.68, HOUSE_HALF_Z + 0.2], palette.houseDoor, 0.14);
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(1.18, 0.13, 8, 30, Math.PI), palette.houseTrim);
     arch.position.set(0, 3.14, HOUSE_HALF_Z + 0.35);
     arch.castShadow = true;
     lowerExterior.add(arch);
-    addBox(lowerExterior, [0.12, 3.08, 0.12], [-1.18, 1.62, HOUSE_HALF_Z + 0.34], palette.trim, 0.03);
-    addBox(lowerExterior, [0.12, 3.08, 0.12], [1.18, 1.62, HOUSE_HALF_Z + 0.34], palette.trim, 0.03);
+    addBox(lowerExterior, [0.12, 3.08, 0.12], [-1.18, 1.62, HOUSE_HALF_Z + 0.34], palette.houseTrim, 0.03);
+    addBox(lowerExterior, [0.12, 3.08, 0.12], [1.18, 1.62, HOUSE_HALF_Z + 0.34], palette.houseTrim, 0.03);
     addSphere(lowerExterior, 0.11, [0.65, 1.64, HOUSE_HALF_Z + 0.4], palette.brass, [1, 1, 0.58]);
     const upperBackLeft = new THREE.Group();
     const upperCutaway = new THREE.Group();
     house.add(upperBackLeft, upperCutaway);
     const upperHeight = UPPER_CEILING - GROUND_CEILING;
-    addBox(upperCutaway, [HOUSE_HALF_X * 2, upperHeight, 0.2], [0, GROUND_CEILING + upperHeight / 2, HOUSE_HALF_Z], palette.housePlasterLight, 0.025);
-    addBox(upperCutaway, [0.2, upperHeight, HOUSE_HALF_Z * 2], [HOUSE_HALF_X, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.025);
-    addBox(upperBackLeft, [0.16, upperHeight, HOUSE_HALF_Z * 2], [-HOUSE_HALF_X, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.025);
-    addBox(upperBackLeft, [HOUSE_HALF_X * 2, upperHeight, 0.16], [0, GROUND_CEILING + upperHeight / 2, -HOUSE_HALF_Z], palette.housePlasterLight, 0.025);
+    addBox(upperCutaway, [HOUSE_HALF_X * 2, upperHeight, 0.38], [0, GROUND_CEILING + upperHeight / 2, HOUSE_HALF_Z - 0.09], palette.housePlasterLight, 0.15);
+    addBox(upperCutaway, [0.38, upperHeight, HOUSE_HALF_Z * 2], [HOUSE_HALF_X - 0.09, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.15);
+    addBox(upperBackLeft, [0.34, upperHeight, HOUSE_HALF_Z * 2], [-HOUSE_HALF_X + 0.07, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.14);
+    addBox(upperBackLeft, [HOUSE_HALF_X * 2, upperHeight, 0.34], [0, GROUND_CEILING + upperHeight / 2, -HOUSE_HALF_Z + 0.07], palette.housePlasterLight, 0.14);
     addBox(upperBackLeft, [0.08, upperHeight - 0.16, HOUSE_HALF_Z * 2 - 0.26], [-HOUSE_HALF_X + 0.09, GROUND_CEILING + upperHeight / 2, 0], palette.interiorWall, 0.018);
     addBox(upperBackLeft, [HOUSE_HALF_X * 2 - 0.26, upperHeight - 0.16, 0.08], [0, GROUND_CEILING + upperHeight / 2, -HOUSE_HALF_Z + 0.09], palette.interiorWall, 0.018);
     const secondFloor = addBox(upperBackLeft, [HOUSE_HALF_X * 2 - 0.25, 0.25, HOUSE_HALF_Z * 2 - 0.25], [0, GROUND_CEILING, 0], palette.floor, 0.035);
     secondFloor.receiveShadow = true;
-    addBox(upperCutaway, [HOUSE_HALF_X * 2 + 0.28, 0.24, 0.27], [0, GROUND_CEILING + 0.08, HOUSE_HALF_Z + 0.12], palette.houseTimber, 0.04);
-    addBox(upperCutaway, [HOUSE_HALF_X * 2 + 0.28, 0.23, 0.27], [0, UPPER_CEILING - 0.12, HOUSE_HALF_Z + 0.12], palette.houseTimber, 0.04);
+    addBox(upperCutaway, [HOUSE_HALF_X * 2 + 0.3, 0.22, 0.2], [0, GROUND_CEILING + 0.09, HOUSE_HALF_Z + 0.1], palette.houseTimber, 0.09);
+    addBox(upperCutaway, [HOUSE_HALF_X * 2 + 0.3, 0.2, 0.2], [0, UPPER_CEILING - 0.12, HOUSE_HALF_Z + 0.1], palette.houseTimber, 0.09);
     for (const x of [-5.45, -2.15, 2.15, 5.45]) {
-        addBox(upperCutaway, [0.2, upperHeight - 0.2, 0.23], [x, GROUND_CEILING + upperHeight / 2, HOUSE_HALF_Z + 0.12], palette.houseTimber, 0.04);
+        addBox(upperCutaway, [0.16, upperHeight - 0.42, 0.16], [x, GROUND_CEILING + upperHeight / 2, HOUSE_HALF_Z + 0.1], palette.houseTimber, 0.07);
     }
     buildWindow(upperCutaway, palette, [-3.55, 7.85, HOUSE_HALF_Z + 0.17], [2.15, 1.85], 0, true);
     buildWindow(upperCutaway, palette, [3.55, 7.85, HOUSE_HALF_Z + 0.17], [2.15, 1.85], 0, true);
@@ -203,13 +238,39 @@ export function buildDreamHouse(scene, palette) {
     gableShape.lineTo(0, RIDGE_Y);
     gableShape.lineTo(HOUSE_HALF_X, UPPER_CEILING);
     gableShape.closePath();
-    const frontTriangle = new THREE.Mesh(new THREE.ShapeGeometry(gableShape), palette.housePlasterLight);
-    frontTriangle.position.z = HOUSE_HALF_Z + 0.02;
+    // Extruded, not a flat triangle: the gable needs the same wall thickness and
+    // the same softened edge as everything else, or it reads as card stock
+    // wedged under the roof.
+    const gableGeometry = new THREE.ExtrudeGeometry(gableShape, {
+        depth: 0.3,
+        bevelEnabled: true,
+        bevelSize: 0.07,
+        bevelThickness: 0.07,
+        bevelSegments: 2,
+        curveSegments: 1,
+    });
+    // ExtrudeGeometry lays out UVs in world units, so a shape thirteen units
+    // wide tiles the glaze thirteen times and the gable comes out speckled like
+    // granite. Rescale the UVs to the shape's own bounds — one glaze pass over
+    // the triangle, the same as every wall panel gets.
+    gableGeometry.computeBoundingBox();
+    const bounds = gableGeometry.boundingBox;
+    const uv = gableGeometry.attributes.uv;
+    const spanX = bounds.max.x - bounds.min.x;
+    const spanY = bounds.max.y - bounds.min.y;
+    for (let i = 0; i < uv.count; i += 1) {
+        uv.setXY(i, (uv.getX(i) - bounds.min.x) / spanX, (uv.getY(i) - bounds.min.y) / spanY);
+    }
+    uv.needsUpdate = true;
+    const frontTriangle = new THREE.Mesh(gableGeometry, palette.housePlasterLight);
+    frontTriangle.position.z = HOUSE_HALF_Z - 0.24;
     frontTriangle.castShadow = true;
     frontTriangle.receiveShadow = true;
     frontGable.add(frontTriangle);
     const backTriangle = frontTriangle.clone();
-    backTriangle.position.z = -HOUSE_HALF_Z - 0.02;
+    // Turned to face the other way, so the extrusion runs back into the house
+    // rather than out over the sea.
+    backTriangle.position.z = -HOUSE_HALF_Z + 0.24;
     backTriangle.rotation.y = Math.PI;
     backGable.add(backTriangle);
     addBeamBetween(frontGable, [-HOUSE_HALF_X, UPPER_CEILING + 0.08], [0, RIDGE_Y], HOUSE_HALF_Z + 0.14, palette.houseTimber, 0.2);

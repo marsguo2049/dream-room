@@ -151,6 +151,12 @@ function addBox(
   return mesh;
 }
 
+// One sphere, scaled. Every leaf clump, berry and blob in the room used to
+// carry its own SphereGeometry at 24x18; at the size most of them appear on
+// screen that was several hundred triangles each for a shape a dozen segments
+// renders identically.
+const ROOM_SPHERE = new THREE.SphereGeometry(1, 18, 12);
+
 function addSphere(
   parent: THREE.Object3D,
   radius: number,
@@ -158,9 +164,9 @@ function addSphere(
   material: THREE.Material,
   scale: [number, number, number] = [1, 1, 1],
 ) {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 24, 18), material);
+  const mesh = new THREE.Mesh(ROOM_SPHERE, material);
   mesh.position.set(...position);
-  mesh.scale.set(...scale);
+  mesh.scale.set(radius * scale[0], radius * scale[1], radius * scale[2]);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   parent.add(mesh);
@@ -240,6 +246,38 @@ function createPalette(surfaces: SurfaceFactory) {
   );
 
   const soft = (x: number) => new THREE.Vector2(x, x);
+
+  /**
+   * The house is a glazed ceramic ornament, so every part of it is the same
+   * fired clay under the same glaze — only the colour of the glaze changes.
+   * Sharing one surface and one set of feature flags means the whole cottage
+   * also compiles down to a single shader program.
+   *
+   * `gloss` is the one dial worth turning: 1 is a wet, fully vitrified glaze,
+   * and 0 is bisque — unglazed, chalky, the way the foot of a real piece is
+   * left bare so it does not fuse to the kiln shelf.
+   */
+  const glazeSurface = surfaces.ceramicGlaze();
+  const glazed = (color: number, gloss = 1, roughness = 0.44) => {
+    const shared = {
+      ...glazeSurface,
+      color,
+      // Barely there. Porcelain reads smooth; the relief is in the roughness.
+      normalScale: soft(0.16 + (1 - gloss) * 0.3),
+      roughness,
+      envMapIntensity: 0.85 + gloss * 0.5,
+    };
+    // Below about a third there is no glaze left to see, and the clearcoat
+    // lobe is pure cost — it measures at roughly a tenth of the frame, and
+    // the matte pieces here (the bisque foot, the lawn) are some of the
+    // largest areas on screen. Those compile as plain standard materials.
+    if (gloss < 0.35) return new THREE.MeshStandardMaterial(shared);
+    return new THREE.MeshPhysicalMaterial({
+      ...shared,
+      clearcoat: gloss,
+      clearcoatRoughness: 0.07 + (1 - gloss) * 0.5,
+    });
+  };
 
   return {
     floor: new THREE.MeshPhysicalMaterial({
@@ -387,66 +425,39 @@ function createPalette(surfaces: SurfaceFactory) {
       clearcoatRoughness: 0.24,
       envMapIntensity: 0.9,
     }),
-    housePlaster: new THREE.MeshStandardMaterial({
-      ...plasterSurface,
-      color: 0xdd7d3f,
-      normalScale: soft(0.72),
-      roughness: 1,
-      envMapIntensity: 0.55,
-    }),
-    housePlasterLight: new THREE.MeshStandardMaterial({
-      ...plasterSurface,
-      color: 0xe8a15e,
-      normalScale: soft(0.62),
-      roughness: 1,
-      envMapIntensity: 0.58,
-    }),
-    houseTimber: new THREE.MeshStandardMaterial({
-      ...deskOak,
-      color: 0x54372a,
-      normalScale: soft(0.72),
-      roughness: 0.88,
-      envMapIntensity: 0.52,
-    }),
-    houseStone: new THREE.MeshStandardMaterial({
-      ...barkSurface,
-      color: 0x9b806b,
-      normalScale: soft(1.18),
-      roughness: 1,
-      envMapIntensity: 0.42,
-    }),
-    roofTile: new THREE.MeshStandardMaterial({
-      color: 0x765241,
-      roughnessMap: paintFinish,
-      roughness: 1,
-      envMapIntensity: 0.48,
-    }),
-    roofEdge: new THREE.MeshStandardMaterial({
-      color: 0x49352e,
-      roughnessMap: paintFinish,
-      roughness: 0.94,
-      envMapIntensity: 0.46,
-    }),
-    windowGlass: new THREE.MeshPhysicalMaterial({
-      color: 0x9fc7cb,
-      transparent: true,
-      opacity: 0.72,
-      roughness: 0.09,
-      clearcoat: 1,
-      clearcoatRoughness: 0.04,
-      envMapIntensity: 1.5,
-    }),
-    windowGlow: new THREE.MeshBasicMaterial({
-      color: 0xffd89b,
-      transparent: true,
-      opacity: 0.33,
-      toneMapped: false,
-    }),
-    garden: new THREE.MeshStandardMaterial({ color: 0x71815a, roughness: 1, envMapIntensity: 0.3 }),
-    pathStone: new THREE.MeshStandardMaterial({ color: 0xb7a58b, roughness: 1, envMapIntensity: 0.42 }),
-    flowerLeaf: new THREE.MeshStandardMaterial({ color: 0x52704a, roughness: 0.92, envMapIntensity: 0.38 }),
-    flowerRed: new THREE.MeshStandardMaterial({ color: 0xb94f3d, roughness: 0.72, envMapIntensity: 0.5 }),
-    flowerCream: new THREE.MeshStandardMaterial({ color: 0xf2e3bd, roughness: 0.7, envMapIntensity: 0.52 }),
+    // Warm cream body, the colour of tin-glazed earthenware. The two storeys
+    // differ by a shade rather than by a material, so the house reads as one
+    // piece that came out of one kiln.
+    housePlaster: glazed(0xf0d9bd, 1, 0.4),
+    housePlasterLight: glazed(0xf7e7d2, 1, 0.38),
+    // The framing is a painted-on glaze line, not timber: a warm grey-brown
+    // laid over the cream, slightly less vitrified so it stays readable.
+    houseTimber: glazed(0xbe9075, 0.9, 0.42),
+    // The base course is left as bisque — unglazed, matte, faintly chalky.
+    // A ceramic piece almost always has one, and it is what stops the whole
+    // cottage from looking like moulded plastic.
+    houseStone: glazed(0xd8c6b2, 0.12, 0.82),
+    // A deep glazed teal for the roof, pooling darker at the seams. The
+    // strongest colour on the piece, the way a maker would place it.
+    roofTile: glazed(0x3f7d84, 1, 0.34),
+    roofEdge: glazed(0x2d5f6a, 1, 0.3),
+    // Not glass: a pane of pale glaze, the way a ceramic house has its windows
+    // painted on and fired rather than glazed open. Opaque on purpose — it
+    // costs nothing to sort and it is closer to the object being imitated.
+    windowGlass: glazed(0xbcdadd, 1, 0.16),
+    // The mullions and the arch, in the white a maker reaches for to outline
+    // an opening.
+    houseTrim: glazed(0xfbf5ea, 1, 0.3),
+    houseDoor: glazed(0x3f7d84, 1, 0.26),
+    // The base the ornament stands on: a soft matte glaze, so the lawn reads
+    // as part of the same object rather than as ground the house sits in.
+    garden: glazed(0x8fa878, 0.3, 0.68),
+    pathStone: glazed(0xe0d3bd, 0.5, 0.5),
+    // Glazed foliage and flowers — saturated, wet-looking, deliberately
+    // simple. This is where a ceramic maker puts the gloss.
+    flowerLeaf: glazed(0x5f8757, 1, 0.36),
+    flowerRed: glazed(0xd25c4a, 1, 0.28),
+    flowerCream: glazed(0xfaf0d8, 1, 0.28),
     interiorWall: new THREE.MeshStandardMaterial({
       ...plasterSurface,
       color: 0xf4eadb,
@@ -890,6 +901,8 @@ function buildTree(scene: THREE.Scene, palette: Palette, interactive: THREE.Obje
 const STUD_PITCH = 0.075;
 const BRICK_HEIGHT = STUD_PITCH * 1.2;
 const STUD_RADIUS = STUD_PITCH * 0.3;
+// Shared across every stud on every brick — there are around a hundred.
+const STUD_GEOMETRY = new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_PITCH * 0.22, 10);
 
 function legoBrick(
   parent: THREE.Object3D,
@@ -911,16 +924,14 @@ function legoBrick(
 
   for (let i = 0; i < studs[0]; i += 1) {
     for (let j = 0; j < studs[1]; j += 1) {
-      const stud = new THREE.Mesh(
-        new THREE.CylinderGeometry(STUD_RADIUS, STUD_RADIUS, STUD_PITCH * 0.22, 16),
-        material,
-      );
+      const stud = new THREE.Mesh(STUD_GEOMETRY, material);
       stud.position.set(
         -width / 2 + STUD_PITCH * (i + 0.5),
         BRICK_HEIGHT + STUD_PITCH * 0.09,
         -depth / 2 + STUD_PITCH * (j + 0.5),
       );
-      stud.castShadow = true;
+      // Studs are a couple of millimetres across at the scene's scale. They
+      // are worth drawing and not worth a shadow pass each.
       stud.receiveShadow = true;
       brick.add(stud);
     }
@@ -1893,7 +1904,21 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
   camera.position.set(20.5, 13.2, 21.2);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  /**
+   * Resolution is the one cost that scales with the machine rather than with
+   * the scene, and it is where a laptop loses a scene like this: at a device
+   * pixel ratio of 2 the room is shaded four times over, before multisampling.
+   *
+   * So the ratio is a budget, not a constant. `renderScale` walks between a
+   * floor and the display's own ratio based on measured frame time, which
+   * means a fast machine gets the full crisp image and a slow one gives up
+   * sharpness rather than smoothness. The ceiling stays at 2 — beyond that
+   * nobody can see the difference and everybody pays for it.
+   */
+  const MAX_PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 2);
+  const MIN_PIXEL_RATIO = Math.min(MAX_PIXEL_RATIO, 0.85);
+  let renderScale = MAX_PIXEL_RATIO;
+  renderer.setPixelRatio(renderScale);
   renderer.shadowMap.enabled = true;
   // PCF here is the Vogel-disk filter, so `shadow.radius` below actually
   // widens the penumbra instead of being ignored.
@@ -1971,14 +1996,23 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
   const sunlight = new THREE.DirectionalLight(0xffefcf, 3.5);
   sunlight.position.set(-8, 18, 12);
   sunlight.castShadow = true;
-  // The shadow camera has to cover the whole house, not just the ground-floor
-  // room, so the map needs the extra resolution to keep the furniture shadows
-  // as tight as they were over the smaller frustum.
-  sunlight.shadow.mapSize.set(3072, 3072);
-  sunlight.shadow.camera.left = -18;
-  sunlight.shadow.camera.right = 18;
-  sunlight.shadow.camera.top = 18;
-  sunlight.shadow.camera.bottom = -18;
+  // The shadow map is redrawn every frame, so its size is a per-frame cost,
+  // not a one-off. Rather than grow the map to cover the whole house at the
+  // old density — 3072 squared is nine million texels a frame — the frustum
+  // is sized to whichever view is on screen. The ground-floor cutaway is a
+  // room, and gets a room-sized frustum at better than the original density;
+  // only the whole-house views need to reach out to the garden.
+  sunlight.shadow.mapSize.set(2048, 2048);
+  const SHADOW_EXTENT: Record<HouseView, number> = { ground: 9.5, upper: 17, house: 17 };
+  const fitShadow = (view: HouseView) => {
+    const extent = SHADOW_EXTENT[view];
+    const shadowCamera = sunlight.shadow.camera;
+    shadowCamera.left = -extent;
+    shadowCamera.right = extent;
+    shadowCamera.top = extent;
+    shadowCamera.bottom = -extent;
+    shadowCamera.updateProjectionMatrix();
+  };
   sunlight.shadow.bias = -0.0004;
   // Normal bias pulls the shadow lookup off the surface, so the new normal
   // maps do not shade themselves into acne.
@@ -2046,6 +2080,7 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
   const applyView = (view: HouseView) => {
     dreamHouse.setView(view);
     tree.visible = view === "ground";
+    fitShadow(view);
     setActiveView(view);
     setStatus(VIEW_STATUS[view]);
   };
@@ -2263,13 +2298,59 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
   observer.observe(mount);
   resize();
 
+  /**
+   * The resolution governor.
+   *
+   * It watches a median-ish frame time over a short window and nudges
+   * `renderScale` down when frames run long, back up when they run short.
+   * Median rather than mean, because a single stall — a texture upload, a
+   * garbage collection — should not cost the whole session its sharpness.
+   *
+   * The two thresholds are deliberately far apart. Anything closer and the
+   * scale oscillates: dropping resolution makes frames cheap, cheap frames
+   * raise it again, and the image visibly breathes. 21 ms is "not holding
+   * 60", 12 ms is "comfortably faster than it needs to be", and between them
+   * nothing happens at all.
+   */
+  const frameTimes: number[] = [];
+  let lastFrameAt = 0;
+  // The opening frames are all shader compilation and texture upload. Judging
+  // the machine on those would drop the resolution of every session on the
+  // first second and never fully recover it.
+  let warmup = 30;
+  const governResolution = (now: number) => {
+    const previous = lastFrameAt;
+    lastFrameAt = now;
+    if (warmup > 0) {
+      warmup -= 1;
+      return;
+    }
+    if (previous) frameTimes.push(now - previous);
+    // Twenty-four frames is a third of a second on a machine that is coping,
+    // which is fast enough to settle before anyone reads the first caption.
+    if (frameTimes.length < 24) return;
+    const median = frameTimes.slice().sort((a, b) => a - b)[frameTimes.length >> 1];
+    frameTimes.length = 0;
+    const next =
+      median > 21
+        ? Math.max(MIN_PIXEL_RATIO, renderScale - 0.25)
+        : median < 12
+          ? Math.min(MAX_PIXEL_RATIO, renderScale + 0.15)
+          : renderScale;
+    if (Math.abs(next - renderScale) < 0.01) return;
+    renderScale = next;
+    renderer.setPixelRatio(renderScale);
+    resize();
+  };
+
   // Timer, not Clock: it hooks the Page Visibility API, so returning to a
   // backgrounded tab does not hand the animation one enormous delta.
   const timer = new THREE.Timer();
   timer.connect(document);
   let frame = 0;
-  const render = () => {
+  const render = (now = 0) => {
     frame = window.requestAnimationFrame(render);
+    governResolution(now);
     timer.update();
     const dt = Math.min(timer.getDelta(), 0.05);
     elapsed += dt;
