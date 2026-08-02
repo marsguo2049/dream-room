@@ -335,7 +335,9 @@ export function buildDreamHouse(scene: THREE.Scene, palette: HousePalette): Drea
   const heart = new THREE.Mesh(new THREE.ShapeGeometry(heartShape, 8), palette.flowerRed);
   heart.position.set(0, 1.72, HOUSE_HALF_Z + 0.35);
   heart.scale.setScalar(0.62);
-  heart.castShadow = true;
+  // A painted decal a few millimetres off the door face. Casting from it only
+  // buys shadow acne on the panel behind.
+  heart.castShadow = false;
   lowerExterior.add(heart);
   addSphere(lowerExterior, 0.11, [0.65, 1.64, HOUSE_HALF_Z + 0.4], palette.brass, [1, 1, 0.58]);
 
@@ -347,8 +349,16 @@ export function buildDreamHouse(scene: THREE.Scene, palette: HousePalette): Drea
   addBox(upperCutaway, [0.38, upperHeight, HOUSE_HALF_Z * 2], [HOUSE_HALF_X - 0.09, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.15);
   addBox(upperBackLeft, [0.34, upperHeight, HOUSE_HALF_Z * 2], [-HOUSE_HALF_X + 0.07, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.14);
   addBox(upperBackLeft, [HOUSE_HALF_X * 2, upperHeight, 0.34], [0, GROUND_CEILING + upperHeight / 2, -HOUSE_HALF_Z + 0.07], palette.housePlasterLight, 0.14);
-  addBox(upperBackLeft, [0.08, upperHeight - 0.16, HOUSE_HALF_Z * 2 - 0.26], [-HOUSE_HALF_X + 0.09, GROUND_CEILING + upperHeight / 2, 0], palette.interiorWall, 0.018);
-  addBox(upperBackLeft, [HOUSE_HALF_X * 2 - 0.26, upperHeight - 0.16, 0.08], [0, GROUND_CEILING + upperHeight / 2, -HOUSE_HALF_Z + 0.09], palette.interiorWall, 0.018);
+  // The plaster lining of the empty upper room, on the *inner* face of the
+  // shell. These used to sit at ±(half - 0.09), which was outside a 0.16 wall
+  // and inside a 0.34 one — so once the walls were thickened for the ceramic
+  // fillet the lining was buried in the slab and the room took the colour of
+  // the exterior. Harmless while the outside was cream; the moment the glaze
+  // went burnt orange the empty bedroom went orange with it.
+  const upperInnerX = -HOUSE_HALF_X + 0.28;
+  const upperInnerZ = -HOUSE_HALF_Z + 0.28;
+  addBox(upperBackLeft, [0.08, upperHeight - 0.16, HOUSE_HALF_Z * 2 - 0.26], [upperInnerX, GROUND_CEILING + upperHeight / 2, 0], palette.interiorWall, 0.018);
+  addBox(upperBackLeft, [HOUSE_HALF_X * 2 - 0.26, upperHeight - 0.16, 0.08], [0, GROUND_CEILING + upperHeight / 2, upperInnerZ], palette.interiorWall, 0.018);
 
   const secondFloor = addBox(
     upperBackLeft,

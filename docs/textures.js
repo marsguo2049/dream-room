@@ -490,7 +490,12 @@ export function createSurfaceFactory(anisotropy) {
             }
         }
         speckle(color, size, 1000, 0.035, 1249);
-        return resolve(painting, 3.2, 1.25);
+        // Repeat 1.6, not 3.2. A box face is UV-mapped 0..1 whatever its size, so
+        // on a roof slab eight units up the slope a repeat of 3.2 put seventeen
+        // courses across it: the scales came out finer than the window mullions
+        // and the roof read as graph paper. Halved, a scale is about the size of
+        // a hand — which is what a scale on a cottage is.
+        return resolve(painting, 1.6, 1.25);
     };
     /**
      * Hand-moulded fieldstone for the lower course and chimney.
