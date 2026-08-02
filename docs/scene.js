@@ -27,6 +27,8 @@ const PIANO_SEAT = new THREE.Vector3(-4.55, 0, 2.3);
 // Pulled in from z = 2.65: from there her shoulder was 1.15 units from the
 // paper and her arm is 0.8 long, so she could not have touched it.
 const DESK_SEAT = new THREE.Vector3(3.5, 0, 2.18);
+const HOUSE_DOOR_INSIDE = new THREE.Vector3(0, 0, 4.65);
+const HOUSE_DOOR_OUTSIDE = new THREE.Vector3(0, 0, 6.65);
 // Floating, the root origin sits well below the waterline: her waist lands on
 // the surface at y ≈ 0.13 and everything below it is under the water.
 const FLOAT_Y = -0.82;
@@ -74,6 +76,12 @@ function placeWalkTarget(point, out) {
         }
     }
     return out.set(x, 0, z);
+}
+function placeGardenTarget(point, out) {
+    // The walkable garden is the lawn in front of the cottage. Keeping the
+    // target beyond the front wall prevents a click seen through a window from
+    // sending her under the house shell.
+    return out.set(THREE.MathUtils.clamp(point.x, -10.8, 10.8), 0, THREE.MathUtils.clamp(point.z, 6.65, 15.2));
 }
 const SWIM_EXIT = new THREE.Vector3(3.62, FLOAT_Y + 0.12, -7.05);
 const SEA_SHORE = new THREE.Vector3(3.6, 0, -6.8);
@@ -524,14 +532,14 @@ function buildSeaWindow(scene, palette) {
     const frame = palette.trim;
     const glass = new THREE.MeshPhysicalMaterial({
         color: 0xdaeeee,
-        roughness: 0.04,
+        roughness: 0.14,
         metalness: 0,
         ior: 1.5,
         transparent: true,
-        opacity: 0.15,
-        clearcoat: 1,
-        clearcoatRoughness: 0.03,
-        envMapIntensity: 1.9,
+        opacity: 0.045,
+        clearcoat: 0.3,
+        clearcoatRoughness: 0.18,
+        envMapIntensity: 0.68,
         side: THREE.DoubleSide,
         depthWrite: false,
     });
@@ -546,14 +554,20 @@ function buildSeaWindow(scene, palette) {
         [0.11, TRANSOM - 0.0425],
         [TRANSOM + 0.0425, HEAD - 0.2],
     ];
+    const windows = [];
     for (let i = 0; i < BAYS; i += 1) {
-        const x = LEFT + bayWidth * (i + 0.5);
+        const left = LEFT + bayWidth * i + POST / 2;
         for (const [bottom, top] of rows) {
+            const hinge = new THREE.Group();
+            hinge.position.set(left, (bottom + top) / 2, WALL_Z + 0.01);
+            scene.add(hinge);
             const pane = new THREE.Mesh(new THREE.PlaneGeometry(bayWidth - POST, top - bottom), glass);
-            pane.position.set(x, (bottom + top) / 2, WALL_Z + 0.01);
-            scene.add(pane);
+            pane.position.x = (bayWidth - POST) / 2;
+            hinge.add(pane);
+            windows.push({ hinge, hitTargets: [pane], openAngle: 0.78 });
         }
     }
+    return windows;
 }
 function buildRoom(scene, palette, surfaces) {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(13, 11), palette.floor);
@@ -575,7 +589,7 @@ function buildRoom(scene, palette, surfaces) {
     addBox(backWall, [2.15, 1.35, 0.18], [4.1, 4.92, -5.35], palette.wall, 0.02);
     addBox(backWall, [1.45, 0.23, 0.16], [5.67, 0.13, -5.23], palette.trim, 0.02);
     // The rest of the sea-facing wall is glass.
-    buildSeaWindow(scene, palette);
+    const windows = buildSeaWindow(scene, palette);
     const rug = new THREE.Mesh(new THREE.CircleGeometry(2.25, 96), palette.rug);
     rug.rotation.x = -Math.PI / 2;
     rug.scale.y = 0.68;
@@ -587,7 +601,7 @@ function buildRoom(scene, palette, surfaces) {
     addContactShadow(scene, crease, [-5.4, 0], [3.4, 11], 0.5);
     // Daylight now floods the glazed wall, so the crease under it stays faint.
     addContactShadow(scene, crease, [-1.6, -4.4], [10, 3], 0.16);
-    return { floor, leftWall, backWall };
+    return { floor, leftWall, backWall, windows };
 }
 function buildOcean(scene, palette, surfaces) {
     const ocean = new THREE.Group();
@@ -679,12 +693,17 @@ function buildDoor(scene, palette, interactive) {
     for (const [y, height] of [[2.72, 1.42], [1.12, 1.42]]) {
         const panel = addBox(hinge, [1.26, height, 0.03], [0.89, y, 0.1], palette.doorPaint, 0.03);
         panel.receiveShadow = true;
+        const backPanel = addBox(hinge, [1.26, height, 0.03], [0.89, y, -0.1], palette.doorPaint, 0.03);
+        backPanel.receiveShadow = true;
     }
     addBox(hinge, [1.38, 0.08, 0.06], [0.89, 3.42, 0.115], palette.trim, 0.02);
     addBox(hinge, [1.38, 0.08, 0.06], [0.89, 0.52, 0.115], palette.trim, 0.02);
-    const handle = addSphere(hinge, 0.09, [1.55, 1.92, 0.18], palette.brass);
-    handle.scale.z = 0.55;
-    addCylinder(hinge, 0.05, 0.05, 0.16, [1.55, 1.92, 0.1], palette.brass, 14).rotation.x = Math.PI / 2;
+    addBox(hinge, [1.38, 0.08, 0.06], [0.89, 3.42, -0.115], palette.trim, 0.02);
+    addBox(hinge, [1.38, 0.08, 0.06], [0.89, 0.52, -0.115], palette.trim, 0.02);
+    // A compact round knob with a shallow rosette, rather than the long pointed
+    // brass ellipsoid that dominated the door in close-up.
+    addCylinder(hinge, 0.052, 0.052, 0.035, [1.55, 1.92, 0.115], palette.brass, 18).rotation.x = Math.PI / 2;
+    addSphere(hinge, 0.058, [1.55, 1.92, 0.17], palette.brass, [1, 1, 0.82]);
     markInteractive(hinge, "door", interactive);
     door.userData.action = "door";
     return hinge;
@@ -1492,7 +1511,7 @@ function lockHandsToBar(rig, angle) {
 }
 export const IDLE_STATUS = "拖拽查看梦境 · 切换楼层 · 点物件看故事";
 const VIEW_STATUS = {
-    house: "完整的两层梦境小屋 · 拖拽查看外观",
+    house: "完整的两层梦境小屋 · 点窗户开合 · 点花园让她走出来",
     ground: "一楼剖切 · 点地面让她走过去 · 点物件看故事",
     upper: "空置的二楼 · 等待下一段梦境住进来",
 };
@@ -1565,6 +1584,22 @@ export function createDreamRoom(mount, handlers) {
     const interactive = [];
     const dreamHouse = buildDreamHouse(scene, palette);
     const room = buildRoom(scene, palette, surfaces);
+    const openableWindows = [...dreamHouse.windows, ...room.windows];
+    const windowOpen = openableWindows.map(() => false);
+    openableWindows.forEach((window, index) => {
+        window.hitTargets.forEach((target) => {
+            target.userData.action = "window";
+            target.userData.windowIndex = index;
+        });
+    });
+    // In the cutaway, only the sea-wall windows are reachable. In whole-house
+    // mode the lawn and every visible sash become the interaction surface.
+    room.windows.flatMap((window) => window.hitTargets).forEach((target) => interactive.push(target));
+    dreamHouse.lawn.userData.action = "garden";
+    const houseInteractive = [
+        dreamHouse.lawn,
+        ...openableWindows.flatMap((window) => window.hitTargets),
+    ];
     const floor = room.floor;
     const ocean = buildOcean(scene, palette, surfaces);
     const doorHinge = buildDoor(scene, palette, interactive);
@@ -1695,6 +1730,9 @@ export function createDreamRoom(mount, handlers) {
     let elapsed = 0;
     let queued = null;
     let doorTarget = 0;
+    let houseDoorTarget = 0;
+    let girlOutside = false;
+    const gardenDestination = new THREE.Vector3();
     const downAt = new THREE.Vector3();
     // Free walking, and the origin a story departs from.
     const walkFrom = new THREE.Vector3();
@@ -1761,6 +1799,12 @@ export function createDreamRoom(mount, handlers) {
             setStatus(queuedMessage[action]);
             return;
         }
+        if (girlOutside) {
+            girlOutside = false;
+            houseDoorTarget = 0;
+            girl.root.position.copy(HOME);
+            girl.root.rotation.set(0, HOME_FACING, 0);
+        }
         setActive(action);
         storyFrom.copy(girl.root.position);
         storyFrom.y = 0;
@@ -1793,6 +1837,7 @@ export function createDreamRoom(mount, handlers) {
         heldPencil.visible = false;
         studyDesk.pencil.visible = true;
         doorTarget = 0;
+        houseDoorTarget = 0;
         setActive("idle");
         setStatus(VIEW_STATUS[currentView]);
         const next = queued;
@@ -1802,6 +1847,7 @@ export function createDreamRoom(mount, handlers) {
     };
     const reset = () => {
         queued = null;
+        girlOutside = false;
         returnIdle();
         resetPose(girl, 1);
     };
@@ -1828,19 +1874,53 @@ export function createDreamRoom(mount, handlers) {
         setActive("idle");
         transition("walk-to", "她朝你点的地方走过去…");
     };
+    const walkToGarden = (point) => {
+        if (state !== "idle" && state !== "garden-walk") {
+            setStatus("她正忙着 · 等这一段演完再叫她");
+            return;
+        }
+        controls.autoRotate = false;
+        placeGardenTarget(point, gardenDestination);
+        walkFrom.copy(girl.root.position);
+        walkFrom.y = 0;
+        walkStartFacing = girl.root.rotation.y;
+        setActive("idle");
+        if (girlOutside) {
+            walkTo.copy(gardenDestination);
+            walkSeconds = THREE.MathUtils.clamp(walkFrom.distanceTo(walkTo) / PACE, 0.8, 7);
+            transition("garden-walk", "她在小屋外的花园里散步…");
+        }
+        else {
+            walkSeconds = paceSeconds(walkFrom, HOUSE_DOOR_INSIDE);
+            transition("garden-door", "她听见你的呼唤，正走向小屋门口…");
+        }
+    };
+    const toggleWindow = (index) => {
+        const window = openableWindows[index];
+        if (!window)
+            return;
+        controls.autoRotate = false;
+        windowOpen[index] = !windowOpen[index];
+        setStatus(windowOpen[index] ? "窗扇轻轻向外打开，海风吹进小屋" : "窗扇轻轻合上了");
+    };
     const toggleLego = () => {
         controls.autoRotate = false;
         legoTarget = legoTarget > 0.5 ? 0 : 1;
         setStatus(legoTarget > 0.5 ? "哗啦——积木散了一琴盖" : "积木被一块块搭了回去");
     };
     const hitAt = (event) => {
-        if (currentView !== "ground")
+        const targets = currentView === "ground"
+            ? interactive
+            : currentView === "house"
+                ? houseInteractive
+                : null;
+        if (!targets)
             return null;
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(pointer, camera);
-        return raycaster.intersectObjects(interactive, false)[0] ?? null;
+        return raycaster.intersectObjects(targets, false)[0] ?? null;
     };
     const HINTS = {
         tree: "点击树 · 看女孩爬树做单杠",
@@ -1849,6 +1929,8 @@ export function createDreamRoom(mount, handlers) {
         desk: "点击书桌 · 陪女孩阅读与学习",
         lego: "点击积木 · 把它搭起来，或者推散",
         floor: "点击地面 · 她会自己走过去",
+        garden: "点击花园 · 女孩会走出小屋来到这里",
+        window: "点击窗户 · 打开或合上窗扇",
     };
     const onMove = (event) => {
         const hit = hitAt(event);
@@ -1873,6 +1955,10 @@ export function createDreamRoom(mount, handlers) {
             toggleLego();
         else if (action === "floor")
             walkToPoint(hit.point);
+        else if (action === "garden")
+            walkToGarden(hit.point);
+        else if (action === "window")
+            toggleWindow(Number(hit.object.userData.windowIndex));
         else if (action === "tree" || action === "door" || action === "piano" || action === "desk") {
             startAction(action);
         }
@@ -1994,6 +2080,46 @@ export function createDreamRoom(mount, handlers) {
             setWalkPose(girl, elapsed, Math.min(1, (1 - p) / 0.15));
             if (phase > walkSeconds)
                 returnIdle(false);
+        }
+        else if (state === "garden-door") {
+            const p = ease(Math.min(1, phase / walkSeconds));
+            girl.root.position.lerpVectors(walkFrom, HOUSE_DOOR_INSIDE, p);
+            const heading = Math.atan2(HOUSE_DOOR_INSIDE.x - walkFrom.x, HOUSE_DOOR_INSIDE.z - walkFrom.z);
+            girl.root.rotation.y = THREE.MathUtils.lerp(walkStartFacing, heading, Math.min(1, phase / 0.4));
+            setWalkPose(girl, elapsed, Math.min(1, (1 - p) / 0.12));
+            if (p > 0.58)
+                houseDoorTarget = -Math.PI * 0.43;
+            if (phase > walkSeconds)
+                transition("garden-exit", "门打开了，她正跨过门槛走到花园里…");
+        }
+        else if (state === "garden-exit") {
+            const p = ease(phase / 1.55);
+            houseDoorTarget = -Math.PI * 0.43;
+            girl.root.position.lerpVectors(HOUSE_DOOR_INSIDE, HOUSE_DOOR_OUTSIDE, p);
+            girl.root.rotation.y = 0;
+            setWalkPose(girl, elapsed);
+            if (phase > 1.55) {
+                girlOutside = true;
+                walkFrom.copy(HOUSE_DOOR_OUTSIDE);
+                walkTo.copy(gardenDestination);
+                walkSeconds = THREE.MathUtils.clamp(walkFrom.distanceTo(walkTo) / PACE, 0.8, 7);
+                walkStartFacing = 0;
+                transition("garden-walk", "她来到屋外，正朝你点的地方走去…");
+            }
+        }
+        else if (state === "garden-walk") {
+            const p = ease(Math.min(1, phase / walkSeconds));
+            girl.root.position.lerpVectors(walkFrom, walkTo, p);
+            const heading = Math.atan2(walkTo.x - walkFrom.x, walkTo.z - walkFrom.z);
+            girl.root.rotation.y = p < 0.85
+                ? THREE.MathUtils.lerp(walkStartFacing, heading, Math.min(1, phase / 0.4))
+                : THREE.MathUtils.lerp(heading, HOME_FACING, ease((p - 0.85) / 0.15));
+            setWalkPose(girl, elapsed, Math.min(1, (1 - p) / 0.12));
+            if (phase > walkSeconds) {
+                girlOutside = true;
+                houseDoorTarget = 0;
+                returnIdle(false);
+            }
         }
         else if (state === "tree-walk") {
             const p = ease(phase / storySeconds);
@@ -2348,6 +2474,11 @@ export function createDreamRoom(mount, handlers) {
                 returnIdle();
         }
         doorHinge.rotation.y = THREE.MathUtils.lerp(doorHinge.rotation.y, doorTarget, 0.075);
+        dreamHouse.frontDoor.rotation.y = THREE.MathUtils.lerp(dreamHouse.frontDoor.rotation.y, houseDoorTarget, 0.085);
+        openableWindows.forEach((window, index) => {
+            const target = windowOpen[index] ? window.openAngle : 0;
+            window.hinge.rotation.y = THREE.MathUtils.lerp(window.hinge.rotation.y, target, 0.1);
+        });
         const openness = THREE.MathUtils.clamp(Math.abs(doorHinge.rotation.y) / (Math.PI * 0.52), 0, 1);
         doorShaftMaterial.opacity = openness * 0.34;
         // Cut away whichever wall the camera has gone behind.

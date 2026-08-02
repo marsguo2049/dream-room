@@ -54,12 +54,19 @@ function buildWindow(parent, palette, position, size, rotationY = 0, flowers = f
     window.rotation.y = rotationY;
     parent.add(window);
     const [width, height] = size;
-    // Generous fillets: a moulded ceramic window has no sharp arris anywhere,
-    // and the soft edge is most of what separates it from a printed box.
-    addBox(window, [width + 0.34, height + 0.34, 0.13], [0, 0, 0], palette.houseTrim, 0.16);
-    addBox(window, [width, height, 0.12], [0, 0, 0.08], palette.windowGlass, 0.07);
-    addBox(window, [0.1, height, 0.09], [0, 0, 0.16], palette.houseTrim, 0.04);
-    addBox(window, [width, 0.1, 0.09], [0, 0, 0.16], palette.houseTrim, 0.04);
+    // A real opening instead of a trim-coloured backing slab. The casing stays
+    // fixed while the glazed sash pivots from its left jamb.
+    const casing = 0.17;
+    addBox(window, [width + 0.34, casing, 0.15], [0, height / 2 + casing / 2, 0], palette.houseTrim, 0.07);
+    addBox(window, [width + 0.34, casing, 0.15], [0, -height / 2 - casing / 2, 0], palette.houseTrim, 0.07);
+    addBox(window, [casing, height, 0.15], [-width / 2 - casing / 2, 0, 0], palette.houseTrim, 0.07);
+    addBox(window, [casing, height, 0.15], [width / 2 + casing / 2, 0, 0], palette.houseTrim, 0.07);
+    const hinge = new THREE.Group();
+    hinge.position.set(-width / 2, 0, 0.04);
+    window.add(hinge);
+    const pane = addBox(hinge, [width, height, 0.11], [width / 2, 0, 0.04], palette.windowGlass, 0.06);
+    addBox(hinge, [0.1, height, 0.08], [width / 2, 0, 0.11], palette.houseTrim, 0.035);
+    addBox(hinge, [width, 0.1, 0.08], [width / 2, 0, 0.11], palette.houseTrim, 0.035);
     if (flowers) {
         addBox(window, [width + 0.34, 0.32, 0.5], [0, -height / 2 - 0.28, 0.34], palette.houseTimber, 0.08);
         const plantY = -height / 2 - 0.08;
@@ -71,7 +78,7 @@ function buildWindow(parent, palette, position, size, rotationY = 0, flowers = f
             }
         }
     }
-    return window;
+    return { hinge, hitTargets: [pane], openAngle: -0.72 };
 }
 /**
  * The embossed fieldstone foot the whole ornament stands on.
@@ -183,12 +190,24 @@ export function buildDreamHouse(scene, palette) {
         garden.add(step);
     }
     buildFlowers(garden, palette);
+    const windows = [];
     const lowerExterior = new THREE.Group();
     house.add(lowerExterior);
     // Wall slabs thick enough to carry a real fillet. Slip-cast earthenware has
     // a wall you can see the thickness of, and the soft arris along every corner
     // is the single strongest ceramic cue in the whole model.
-    addBox(lowerExterior, [HOUSE_HALF_X * 2, GROUND_CEILING, 0.38], [0, GROUND_CEILING / 2, HOUSE_HALF_Z - 0.09], palette.housePlaster, 0.15);
+    const addFrontWall = (parent, x1, x2, y1, y2, material) => addBox(parent, [x2 - x1, y2 - y1, 0.38], [(x1 + x2) / 2, (y1 + y2) / 2, HOUSE_HALF_Z - 0.09], material, 0.12);
+    // Build around the front door and four front windows. The previous single
+    // slab sat directly behind every sash and door, so opening one only exposed
+    // another orange rectangle rather than the room inside.
+    for (const [x1, x2] of [[-6.55, -4.625], [-2.475, -1.18], [1.18, 2.475], [4.625, 6.55]]) {
+        addFrontWall(lowerExterior, x1, x2, 0, GROUND_CEILING, palette.housePlaster);
+    }
+    for (const [x1, x2] of [[-4.625, -2.475], [2.475, 4.625]]) {
+        addFrontWall(lowerExterior, x1, x2, 0, 2.375, palette.housePlaster);
+        addFrontWall(lowerExterior, x1, x2, 4.325, GROUND_CEILING, palette.housePlaster);
+    }
+    addFrontWall(lowerExterior, -1.18, 1.18, 4.3, GROUND_CEILING, palette.housePlaster);
     addBox(lowerExterior, [0.38, GROUND_CEILING, HOUSE_HALF_Z * 2], [HOUSE_HALF_X - 0.09, GROUND_CEILING / 2, 0], palette.housePlaster, 0.15);
     addBox(lowerExterior, [0.3, GROUND_CEILING, HOUSE_HALF_Z * 2], [-HOUSE_HALF_X - 0.05, GROUND_CEILING / 2, 0], palette.housePlaster, 0.12);
     buildFoot(lowerExterior, palette);
@@ -198,11 +217,13 @@ export function buildDreamHouse(scene, palette) {
     for (const x of [-5.45, -2.15, 2.15, 5.45]) {
         addBox(lowerExterior, [0.16, GROUND_CEILING - 1.72, 0.16], [x, 3.7, HOUSE_HALF_Z + 0.1], palette.houseTimber, 0.07);
     }
-    buildWindow(lowerExterior, palette, [-3.55, 3.35, HOUSE_HALF_Z + 0.17], [2.15, 1.95], 0, true);
-    buildWindow(lowerExterior, palette, [3.55, 3.35, HOUSE_HALF_Z + 0.17], [2.15, 1.95], 0, true);
+    windows.push(buildWindow(lowerExterior, palette, [-3.55, 3.35, HOUSE_HALF_Z + 0.17], [2.15, 1.95], 0, true), buildWindow(lowerExterior, palette, [3.55, 3.35, HOUSE_HALF_Z + 0.17], [2.15, 1.95], 0, true));
     buildWindow(lowerExterior, palette, [HOUSE_HALF_X + 0.17, 3.2, 1.8], [2.1, 1.9], Math.PI / 2, false);
     buildWindow(lowerExterior, palette, [HOUSE_HALF_X + 0.17, 3.2, -2.15], [1.7, 1.9], Math.PI / 2, false);
-    addBox(lowerExterior, [2.25, 3.25, 0.23], [0, 1.68, HOUSE_HALF_Z + 0.2], palette.houseDoor, 0.14);
+    const frontDoor = new THREE.Group();
+    frontDoor.position.set(-1.125, 0, HOUSE_HALF_Z + 0.2);
+    lowerExterior.add(frontDoor);
+    addBox(frontDoor, [2.25, 3.25, 0.23], [1.125, 1.68, 0], palette.houseDoor, 0.14);
     const arch = new THREE.Mesh(new THREE.TorusGeometry(1.18, 0.13, 8, 30, Math.PI), palette.houseTrim);
     arch.position.set(0, 3.14, HOUSE_HALF_Z + 0.35);
     arch.castShadow = true;
@@ -216,18 +237,24 @@ export function buildDreamHouse(scene, palette) {
     heartShape.bezierCurveTo(-0.48, 0.02, -0.44, 0.42, 0, 0.2);
     heartShape.bezierCurveTo(0.44, 0.42, 0.48, 0.02, 0, -0.24);
     const heart = new THREE.Mesh(new THREE.ShapeGeometry(heartShape, 8), palette.flowerRed);
-    heart.position.set(0, 1.72, HOUSE_HALF_Z + 0.35);
+    heart.position.set(1.125, 1.72, 0.15);
     heart.scale.setScalar(0.62);
     // A painted decal a few millimetres off the door face. Casting from it only
     // buys shadow acne on the panel behind.
     heart.castShadow = false;
-    lowerExterior.add(heart);
-    addSphere(lowerExterior, 0.11, [0.65, 1.64, HOUSE_HALF_Z + 0.4], palette.brass, [1, 1, 0.58]);
+    frontDoor.add(heart);
+    addSphere(frontDoor, 0.085, [1.78, 1.64, 0.18], palette.brass, [1, 1, 0.72]);
     const upperBackLeft = new THREE.Group();
     const upperCutaway = new THREE.Group();
     house.add(upperBackLeft, upperCutaway);
     const upperHeight = UPPER_CEILING - GROUND_CEILING;
-    addBox(upperCutaway, [HOUSE_HALF_X * 2, upperHeight, 0.38], [0, GROUND_CEILING + upperHeight / 2, HOUSE_HALF_Z - 0.09], palette.housePlasterLight, 0.15);
+    for (const [x1, x2] of [[-6.55, -4.625], [-2.475, 2.475], [4.625, 6.55]]) {
+        addFrontWall(upperCutaway, x1, x2, GROUND_CEILING, UPPER_CEILING, palette.housePlasterLight);
+    }
+    for (const [x1, x2] of [[-4.625, -2.475], [2.475, 4.625]]) {
+        addFrontWall(upperCutaway, x1, x2, GROUND_CEILING, 6.925, palette.housePlasterLight);
+        addFrontWall(upperCutaway, x1, x2, 8.775, UPPER_CEILING, palette.housePlasterLight);
+    }
     addBox(upperCutaway, [0.38, upperHeight, HOUSE_HALF_Z * 2], [HOUSE_HALF_X - 0.09, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.15);
     addBox(upperBackLeft, [0.34, upperHeight, HOUSE_HALF_Z * 2], [-HOUSE_HALF_X + 0.07, GROUND_CEILING + upperHeight / 2, 0], palette.housePlasterLight, 0.14);
     addBox(upperBackLeft, [HOUSE_HALF_X * 2, upperHeight, 0.34], [0, GROUND_CEILING + upperHeight / 2, -HOUSE_HALF_Z + 0.07], palette.housePlasterLight, 0.14);
@@ -248,8 +275,7 @@ export function buildDreamHouse(scene, palette) {
     for (const x of [-5.45, -2.15, 2.15, 5.45]) {
         addBox(upperCutaway, [0.16, upperHeight - 0.42, 0.16], [x, GROUND_CEILING + upperHeight / 2, HOUSE_HALF_Z + 0.1], palette.houseTimber, 0.07);
     }
-    buildWindow(upperCutaway, palette, [-3.55, 7.85, HOUSE_HALF_Z + 0.17], [2.15, 1.85], 0, true);
-    buildWindow(upperCutaway, palette, [3.55, 7.85, HOUSE_HALF_Z + 0.17], [2.15, 1.85], 0, true);
+    windows.push(buildWindow(upperCutaway, palette, [-3.55, 7.85, HOUSE_HALF_Z + 0.17], [2.15, 1.85], 0, true), buildWindow(upperCutaway, palette, [3.55, 7.85, HOUSE_HALF_Z + 0.17], [2.15, 1.85], 0, true));
     buildWindow(upperCutaway, palette, [HOUSE_HALF_X + 0.17, 7.85, 1.75], [2.05, 1.8], Math.PI / 2, false);
     const frontGable = new THREE.Group();
     const backGable = new THREE.Group();
@@ -309,5 +335,5 @@ export function buildDreamHouse(scene, palette) {
         roof.visible = complete;
     };
     setView("house");
-    return { setView };
+    return { setView, lawn, windows, frontDoor };
 }
