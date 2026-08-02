@@ -96,7 +96,7 @@
     </main>
 
     <script type="module">
-      import { createDreamRoom, IDLE_STATUS } from "./scene.js";
+      import { createDreamRoom } from "./scene.js";
 
       const mount = document.getElementById("scene-mount");
       const fallback = document.getElementById("scene-fallback");
@@ -144,7 +144,9 @@
           },
         });
 
-        statusLine.textContent = IDLE_STATUS;
+        // No initial assignment here: createDreamRoom has already pushed the
+        // status for the opening view through onStatus, and overwriting it
+        // would put the ground-floor hint under the whole-house view.
         for (const button of buttons) {
           button.addEventListener("click", () => room.act(button.dataset.action));
         }

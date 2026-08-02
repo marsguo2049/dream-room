@@ -1546,7 +1546,7 @@ export function createDreamRoom(mount, handlers) {
     const floor = room.floor;
     const ocean = buildOcean(scene, palette, surfaces);
     const doorHinge = buildDoor(scene, palette, interactive);
-    buildTree(scene, palette, interactive);
+    const tree = buildTree(scene, palette, interactive);
     const piano = buildPiano(scene, palette, interactive);
     const studyDesk = buildDesk(scene, palette, glowFalloff, interactive);
     const girl = buildGirl(scene, palette);
@@ -1569,7 +1569,10 @@ export function createDreamRoom(mount, handlers) {
     const sunlight = new THREE.DirectionalLight(0xffefcf, 3.5);
     sunlight.position.set(-8, 18, 12);
     sunlight.castShadow = true;
-    sunlight.shadow.mapSize.set(2048, 2048);
+    // The shadow camera has to cover the whole house, not just the ground-floor
+    // room, so the map needs the extra resolution to keep the furniture shadows
+    // as tight as they were over the smaller frustum.
+    sunlight.shadow.mapSize.set(3072, 3072);
     sunlight.shadow.camera.left = -18;
     sunlight.shadow.camera.right = 18;
     sunlight.shadow.camera.top = 18;
@@ -1631,6 +1634,16 @@ export function createDreamRoom(mount, handlers) {
     const cameraTo = new THREE.Vector3();
     const targetFrom = new THREE.Vector3();
     const targetTo = new THREE.Vector3();
+    // The crown reaches y ≈ 6.14, above the second-floor slab at GROUND_CEILING,
+    // so in any view that draws that slab the tree would sprout out of the empty
+    // upper room. Nothing of the ground floor is visible outside its own cutaway
+    // anyway, so the tree simply belongs to that view.
+    const applyView = (view) => {
+        dreamHouse.setView(view);
+        tree.visible = view === "ground";
+        setActiveView(view);
+        setStatus(VIEW_STATUS[view]);
+    };
     const setView = (view) => {
         controls.autoRotate = false;
         currentView = view;
@@ -1639,16 +1652,12 @@ export function createDreamRoom(mount, handlers) {
         cameraTo.copy(cameraViews[view].position);
         targetTo.copy(cameraViews[view].target);
         cameraTravel = 0;
-        dreamHouse.setView(view);
-        setActiveView(view);
-        setStatus(VIEW_STATUS[view]);
+        applyView(view);
     };
     controls.addEventListener("start", () => {
         cameraTravel = 1;
     });
-    dreamHouse.setView(currentView);
-    setActiveView(currentView);
-    setStatus(VIEW_STATUS[currentView]);
+    applyView(currentView);
     let state = "idle";
     let phase = 0;
     let elapsed = 0;
