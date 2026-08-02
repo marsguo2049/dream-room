@@ -23,7 +23,9 @@ const RELEASE_ANGLE = -0.62;
 const RELEASE_POINT = new THREE.Vector3(BAR_ANCHOR.x, BAR_ANCHOR.y - Math.cos(RELEASE_ANGLE) * ARM_REACH, BAR_ANCHOR.z - Math.sin(RELEASE_ANGLE) * ARM_REACH);
 const DOOR_FRONT = new THREE.Vector3(3.45, 0, -2.9);
 const PIANO_SEAT = new THREE.Vector3(-4.55, 0, 2.3);
-const DESK_SEAT = new THREE.Vector3(3.55, 0, 2.65);
+// Pulled in from z = 2.65: from there her shoulder was 1.15 units from the
+// paper and her arm is 0.8 long, so she could not have touched it.
+const DESK_SEAT = new THREE.Vector3(3.5, 0, 2.18);
 // Floating, the root origin sits well below the waterline: her waist lands on
 // the surface at y ≈ 0.13 and everything below it is under the water.
 const FLOAT_Y = -0.82;
@@ -1212,10 +1214,10 @@ function buildGirl(scene, palette) {
     const leftLeg = buildLimb(root, [-BODY.hipX, BODY.hipY, 0], BODY.upperLeg, BODY.lowerLeg, BODY.legRadius, skin);
     const rightLeg = buildLimb(root, [BODY.hipX, BODY.hipY, 0], BODY.upperLeg, BODY.lowerLeg, BODY.legRadius, skin);
     addHand(leftArm, -1, BODY.lowerArm, palette);
-    addHand(rightArm, 1, BODY.lowerArm, palette);
+    const rightHand = addHand(rightArm, 1, BODY.lowerArm, palette);
     addFoot(leftLeg, BODY.lowerLeg, palette);
     addFoot(rightLeg, BODY.lowerLeg, palette);
-    return { root, torso, head, eyes, leftArm, rightArm, leftLeg, rightLeg, ponytails };
+    return { root, torso, head, eyes, leftArm, rightArm, leftLeg, rightLeg, rightHand, ponytails };
 }
 function makeDust(scene, sprite) {
     const points = [];
@@ -1276,6 +1278,35 @@ function buildSwimRing(parent) {
  * below, and the whole body rocking with the swell. The old pose was a front
  * crawl, which is not something you do while sitting in a ring.
  */
+/**
+ * Two-bone IK for an arm or a leg.
+ *
+ * `target` is a wrist position in the rig root's space. The elbow angle comes
+ * from the law of cosines, then the whole limb is aimed at the target and
+ * rotated back by the angle between the upper bone and the shoulder-to-wrist
+ * chord. Hand-authored joint angles could not keep the hand on the desk; this
+ * puts it exactly where the writing is.
+ */
+function reachTo(limb, target, upper, lower) {
+    const dx = target.x - limb.pivot.position.x;
+    const dy = target.y - limb.pivot.position.y;
+    const dz = target.z - limb.pivot.position.z;
+    const span = (upper + lower) * 0.995;
+    const raw = Math.max(Math.hypot(dx, dy, dz), 0.0001);
+    const distance = Math.min(raw, span);
+    const shrink = distance / raw;
+    const tx = dx * shrink;
+    const ty = dy * shrink;
+    const tz = dz * shrink;
+    // Aim the straight limb: its rest direction is (0, -1, 0).
+    const roll = Math.asin(THREE.MathUtils.clamp(tx / distance, -1, 1));
+    const pitch = Math.atan2(-tz, -ty);
+    const elbow = Math.PI -
+        Math.acos(THREE.MathUtils.clamp((upper * upper + lower * lower - distance * distance) / (2 * upper * lower), -1, 1));
+    const offset = Math.acos(THREE.MathUtils.clamp((upper * upper + distance * distance - lower * lower) / (2 * upper * distance), -1, 1));
+    limb.pivot.rotation.set(pitch + offset, 0, roll);
+    limb.lower.rotation.set(-elbow, 0, 0);
+}
 function setPaddlePose(rig, clock, effort = 1) {
     const stroke = clock * 1.9 * effort;
     const sweep = Math.sin(stroke);
@@ -1418,12 +1449,28 @@ export function createDreamRoom(mount, handlers) {
     const studyDesk = buildDesk(scene, palette, glowFalloff, interactive);
     const girl = buildGirl(scene, palette);
     const swimRing = buildSwimRing(girl.root);
+    // A second pencil, parented to her hand. Swapping which of the two is
+    // visible is what guarantees the pencil never drifts away from her fingers:
+    // while she writes, the one you see *is* a child of the hand.
+    const pencilWood = new THREE.MeshPhysicalMaterial({
+        color: 0xe8b23c,
+        roughness: 0.42,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.25,
+        envMapIntensity: 0.8,
+    });
+    const heldPencil = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.016, 0.32, 12), pencilWood);
+    heldPencil.position.set(0.01, -0.075, 0.035);
+    heldPencil.rotation.set(2.45, 0, 0.3);
+    heldPencil.castShadow = true;
+    heldPencil.visible = false;
+    girl.rightHand.add(heldPencil);
     const dust = makeDust(scene, glowFalloff);
     // Ambient occlusion under anything heavy, so nothing floats.
     addContactShadow(scene, softShadow, [-5.95, 2.3], [2.9, 3.6], 0.55);
     addContactShadow(scene, softShadow, [3.55, 1.25], [4.2, 2.4], 0.42);
     addContactShadow(scene, softShadow, [-3.6, -1.0], [3.2, 3.2], 0.6);
-    addContactShadow(scene, softShadow, [3.55, 2.73], [2.1, 1.8], 0.3);
+    addContactShadow(scene, softShadow, [3.55, 2.27], [2.1, 1.8], 0.3);
     scene.add(new THREE.HemisphereLight(0xdff0e7, 0x57463a, 1.1));
     const sunlight = new THREE.DirectionalLight(0xffefcf, 3.5);
     sunlight.position.set(-5, 10, 7);
@@ -1487,6 +1534,11 @@ export function createDreamRoom(mount, handlers) {
     let legoAmount = 0;
     let legoTarget = 0;
     const surfaceAt = new THREE.Vector3();
+    // Where her hands go while she works, in the rig root's space.
+    const reachTarget = new THREE.Vector3();
+    const LAP_RIGHT = new THREE.Vector3(0.34, 1.06, 0.3);
+    const LAP_LEFT = new THREE.Vector3(-0.34, 1.06, 0.3);
+    const REST_LEFT = new THREE.Vector3(-0.3, 1.42, 0.55);
     let surfaceFacing = Math.PI;
     let audioContext = null;
     const ensureAudio = () => {
@@ -1562,6 +1614,8 @@ export function createDreamRoom(mount, handlers) {
             girl.root.rotation.set(0, HOME_FACING, 0);
         }
         swimRing.visible = false;
+        heldPencil.visible = false;
+        studyDesk.pencil.visible = true;
         doorTarget = 0;
         setActive("idle");
         setStatus(IDLE_STATUS);
@@ -1894,10 +1948,14 @@ export function createDreamRoom(mount, handlers) {
             girl.rightLeg.pivot.rotation.x = -Math.PI / 2 * p;
             girl.leftLeg.lower.rotation.x = Math.PI / 2 * p;
             girl.rightLeg.lower.rotation.x = Math.PI / 2 * p;
-            girl.leftArm.pivot.rotation.x = -0.74 * p;
-            girl.rightArm.pivot.rotation.x = -0.79 * p;
-            girl.leftArm.lower.rotation.x = -0.69 * p;
-            girl.rightArm.lower.rotation.x = -0.72 * p;
+            // Hands travel from her lap up onto the desk, so the study pose is
+            // arrived at rather than snapped to.
+            reachTarget.lerpVectors(LAP_RIGHT, new THREE.Vector3(0.1, 1.4, 0.68), p);
+            reachTo(girl.rightArm, reachTarget, BODY.upperArm, BODY.lowerArm);
+            reachTarget.lerpVectors(LAP_LEFT, REST_LEFT, p);
+            reachTo(girl.leftArm, reachTarget, BODY.upperArm, BODY.lowerArm);
+            heldPencil.visible = p > 0.55;
+            studyDesk.pencil.visible = p <= 0.55;
             girl.head.rotation.x = 0.2 * p;
             if (phase > 1.3)
                 transition("desk-study", "台灯亮着，她正在认真阅读和做笔记…");
@@ -1909,22 +1967,23 @@ export function createDreamRoom(mount, handlers) {
             girl.rightLeg.pivot.rotation.x = -Math.PI / 2;
             girl.leftLeg.lower.rotation.x = Math.PI / 2;
             girl.rightLeg.lower.rotation.x = Math.PI / 2;
-            girl.leftArm.pivot.rotation.x = -0.74;
-            girl.rightArm.pivot.rotation.x = -0.79 + Math.sin(phase * 8.5) * 0.045;
-            girl.leftArm.pivot.rotation.z = 0.12;
-            girl.rightArm.pivot.rotation.z = -0.18;
-            girl.leftArm.lower.rotation.x = -0.69;
-            girl.rightArm.lower.rotation.x = -0.72 + Math.sin(phase * 8.5) * 0.11;
-            girl.torso.rotation.x = 0.075;
-            girl.head.rotation.x = 0.22 + Math.sin(phase * 1.2) * 0.035;
+            // The hand traces the writing; the pencil is in it, so the motion comes
+            // from her arm instead of the pencil sliding around on its own.
+            reachTarget.set(0.1 + Math.sin(phase * 5.4) * 0.13, 1.4, 0.68 + Math.sin(phase * 2.7) * 0.05);
+            reachTo(girl.rightArm, reachTarget, BODY.upperArm, BODY.lowerArm);
+            reachTo(girl.leftArm, REST_LEFT, BODY.upperArm, BODY.lowerArm);
+            heldPencil.visible = true;
+            studyDesk.pencil.visible = false;
+            girl.torso.rotation.x = 0.1;
+            girl.head.rotation.x = 0.26 + Math.sin(phase * 1.2) * 0.035;
             girl.head.rotation.y = Math.sin(phase * 0.7) * 0.08;
-            studyDesk.pencil.position.x = 0.42 + Math.sin(phase * 8.5) * 0.17;
-            studyDesk.pencil.position.z = 0.25 + Math.sin(phase * 4.25) * 0.05;
             if (phase > 8.2)
                 transition("desk-return", "学习告一段落，她合上笔记准备休息");
         }
         else if (state === "desk-return") {
             const p = ease(phase / 3.0);
+            heldPencil.visible = false;
+            studyDesk.pencil.visible = true;
             girl.root.position.lerpVectors(DESK_SEAT, HOME, p);
             girl.root.rotation.y = THREE.MathUtils.lerp(Math.PI, HOME_FACING, ease(Math.max(0, (p - 0.5) / 0.5)));
             setWalkPose(girl, elapsed, ease(Math.max(0, (p - 0.12) / 0.88)));
