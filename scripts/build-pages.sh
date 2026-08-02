@@ -12,7 +12,7 @@ cd "$root"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-npx tsc app/scene.ts app/textures.ts \
+npx tsc app/scene.ts app/house.ts app/textures.ts \
   --target es2022 \
   --module esnext \
   --moduleResolution bundler \
@@ -21,9 +21,10 @@ npx tsc app/scene.ts app/textures.ts \
 
 # TypeScript keeps the extensionless specifier; a browser needs the real path.
 sed -i 's#from "\./textures"#from "./textures.js"#' "$work/scene.js"
+sed -i 's#from "\./house"#from "./house.js"#' "$work/scene.js"
 
 header='// Generated from app/%s by scripts/build-pages.sh. Do not edit by hand.\n'
-for name in scene textures; do
+for name in scene house textures; do
   printf "$header" "$name.ts" > "docs/$name.js"
   cat "$work/$name.js" >> "docs/$name.js"
 done
@@ -40,4 +41,4 @@ if [ "$version" != "$(cat docs/vendor/three/VERSION)" ]; then
   echo "$version" > docs/vendor/three/VERSION
 fi
 
-echo "Static Pages build refreshed: docs/scene.js, docs/textures.js (three $version)"
+echo "Static Pages build refreshed: docs/scene.js, docs/house.js, docs/textures.js (three $version)"

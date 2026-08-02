@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { buildDreamHouse } from "./house.js";
 import { createSurfaceFactory } from "./textures.js";
 const HOME = new THREE.Vector3(-0.15, 0, 2.55);
 const TREE_BASE = new THREE.Vector3(-2.38, 0, -0.58);
@@ -292,6 +293,73 @@ function createPalette(surfaces) {
             clearcoat: 0.42,
             clearcoatRoughness: 0.24,
             envMapIntensity: 0.9,
+        }),
+        housePlaster: new THREE.MeshStandardMaterial({
+            ...plasterSurface,
+            color: 0xdd7d3f,
+            normalScale: soft(0.72),
+            roughness: 1,
+            envMapIntensity: 0.55,
+        }),
+        housePlasterLight: new THREE.MeshStandardMaterial({
+            ...plasterSurface,
+            color: 0xe8a15e,
+            normalScale: soft(0.62),
+            roughness: 1,
+            envMapIntensity: 0.58,
+        }),
+        houseTimber: new THREE.MeshStandardMaterial({
+            ...deskOak,
+            color: 0x54372a,
+            normalScale: soft(0.72),
+            roughness: 0.88,
+            envMapIntensity: 0.52,
+        }),
+        houseStone: new THREE.MeshStandardMaterial({
+            ...barkSurface,
+            color: 0x9b806b,
+            normalScale: soft(1.18),
+            roughness: 1,
+            envMapIntensity: 0.42,
+        }),
+        roofTile: new THREE.MeshStandardMaterial({
+            color: 0x765241,
+            roughnessMap: paintFinish,
+            roughness: 1,
+            envMapIntensity: 0.48,
+        }),
+        roofEdge: new THREE.MeshStandardMaterial({
+            color: 0x49352e,
+            roughnessMap: paintFinish,
+            roughness: 0.94,
+            envMapIntensity: 0.46,
+        }),
+        windowGlass: new THREE.MeshPhysicalMaterial({
+            color: 0x9fc7cb,
+            transparent: true,
+            opacity: 0.72,
+            roughness: 0.09,
+            clearcoat: 1,
+            clearcoatRoughness: 0.04,
+            envMapIntensity: 1.5,
+        }),
+        windowGlow: new THREE.MeshBasicMaterial({
+            color: 0xffd89b,
+            transparent: true,
+            opacity: 0.33,
+            toneMapped: false,
+        }),
+        garden: new THREE.MeshStandardMaterial({ color: 0x71815a, roughness: 1, envMapIntensity: 0.3 }),
+        pathStone: new THREE.MeshStandardMaterial({ color: 0xb7a58b, roughness: 1, envMapIntensity: 0.42 }),
+        flowerLeaf: new THREE.MeshStandardMaterial({ color: 0x52704a, roughness: 0.92, envMapIntensity: 0.38 }),
+        flowerRed: new THREE.MeshStandardMaterial({ color: 0xb94f3d, roughness: 0.72, envMapIntensity: 0.5 }),
+        flowerCream: new THREE.MeshStandardMaterial({ color: 0xf2e3bd, roughness: 0.7, envMapIntensity: 0.52 }),
+        interiorWall: new THREE.MeshStandardMaterial({
+            ...plasterSurface,
+            color: 0xf4eadb,
+            normalScale: soft(0.38),
+            roughness: 1,
+            envMapIntensity: 0.54,
         }),
         sand: new THREE.MeshStandardMaterial({
             ...beach,
@@ -1387,16 +1455,22 @@ function lockHandsToBar(rig, angle) {
     rig.leftArm.lower.rotation.z = 0;
     rig.rightArm.lower.rotation.z = 0;
 }
-export const IDLE_STATUS = "拖拽查看梦境 · 点地面让她走过去 · 点物件看故事";
+export const IDLE_STATUS = "拖拽查看梦境 · 切换楼层 · 点物件看故事";
+const VIEW_STATUS = {
+    house: "完整的两层梦境小屋 · 拖拽查看外观",
+    ground: "一楼剖切 · 点地面让她走过去 · 点物件看故事",
+    upper: "空置的二楼 · 等待下一段梦境住进来",
+};
 export function createDreamRoom(mount, handlers) {
     const setStatus = handlers.onStatus;
     const setActive = handlers.onActive;
+    const setActiveView = handlers.onView ?? (() => undefined);
     const scene = new THREE.Scene();
     // Far enough out that the room and the sea keep their colour; the fog is
     // there to soften the horizon, not to wash the scene.
-    scene.fog = new THREE.Fog(0xa9b5ad, 26, 62);
-    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 80);
-    camera.position.set(11.7, 7.2, 11.3);
+    scene.fog = new THREE.Fog(0xa9b5ad, 34, 78);
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 110);
+    camera.position.set(20.5, 13.2, 21.2);
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -1423,11 +1497,11 @@ export function createDreamRoom(mount, handlers) {
     panorama.dispose();
     pmrem.dispose();
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(-0.35, 2.15, -1.35);
+    controls.target.set(0, 5.45, 0.15);
     controls.enableDamping = true;
     controls.dampingFactor = 0.055;
     controls.minDistance = 8.5;
-    controls.maxDistance = 23;
+    controls.maxDistance = 36;
     controls.minPolarAngle = Math.PI * 0.16;
     controls.maxPolarAngle = Math.PI * 0.48;
     // Unclamped azimuth: the room can be walked all the way around. The polar
@@ -1440,6 +1514,7 @@ export function createDreamRoom(mount, handlers) {
     const softShadow = surfaces.radialFalloff("rgba(0,0,0,0.55)", "rgba(0,0,0,0.2)", 0.5);
     const glowFalloff = surfaces.radialFalloff("rgba(255,231,180,0.9)", "rgba(255,205,128,0.2)", 0.28);
     const interactive = [];
+    const dreamHouse = buildDreamHouse(scene, palette);
     const room = buildRoom(scene, palette, surfaces);
     const floor = room.floor;
     const ocean = buildOcean(scene, palette, surfaces);
@@ -1473,13 +1548,13 @@ export function createDreamRoom(mount, handlers) {
     addContactShadow(scene, softShadow, [3.55, 2.27], [2.1, 1.8], 0.3);
     scene.add(new THREE.HemisphereLight(0xdff0e7, 0x57463a, 1.1));
     const sunlight = new THREE.DirectionalLight(0xffefcf, 3.5);
-    sunlight.position.set(-5, 10, 7);
+    sunlight.position.set(-8, 18, 12);
     sunlight.castShadow = true;
     sunlight.shadow.mapSize.set(2048, 2048);
-    sunlight.shadow.camera.left = -10;
-    sunlight.shadow.camera.right = 10;
-    sunlight.shadow.camera.top = 10;
-    sunlight.shadow.camera.bottom = -10;
+    sunlight.shadow.camera.left = -18;
+    sunlight.shadow.camera.right = 18;
+    sunlight.shadow.camera.top = 18;
+    sunlight.shadow.camera.bottom = -18;
     sunlight.shadow.bias = -0.0004;
     // Normal bias pulls the shadow lookup off the surface, so the new normal
     // maps do not shade themselves into acne.
@@ -1517,6 +1592,44 @@ export function createDreamRoom(mount, handlers) {
     doorShaft.position.set(4.1, 1.9, -4.1);
     doorShaft.rotation.x = -Math.PI / 2.35;
     scene.add(doorShaft);
+    const cameraViews = {
+        house: {
+            position: new THREE.Vector3(20.5, 13.2, 21.2),
+            target: new THREE.Vector3(0, 5.45, 0.15),
+        },
+        ground: {
+            position: new THREE.Vector3(11.7, 7.2, 11.3),
+            target: new THREE.Vector3(-0.35, 2.15, -1.35),
+        },
+        upper: {
+            position: new THREE.Vector3(16.2, 13.4, 16.8),
+            target: new THREE.Vector3(0, 7.78, -0.25),
+        },
+    };
+    let currentView = "house";
+    let cameraTravel = 1;
+    const cameraFrom = new THREE.Vector3();
+    const cameraTo = new THREE.Vector3();
+    const targetFrom = new THREE.Vector3();
+    const targetTo = new THREE.Vector3();
+    const setView = (view) => {
+        controls.autoRotate = false;
+        currentView = view;
+        cameraFrom.copy(camera.position);
+        targetFrom.copy(controls.target);
+        cameraTo.copy(cameraViews[view].position);
+        targetTo.copy(cameraViews[view].target);
+        cameraTravel = 0;
+        dreamHouse.setView(view);
+        setActiveView(view);
+        setStatus(VIEW_STATUS[view]);
+    };
+    controls.addEventListener("start", () => {
+        cameraTravel = 1;
+    });
+    dreamHouse.setView(currentView);
+    setActiveView(currentView);
+    setStatus(VIEW_STATUS[currentView]);
     let state = "idle";
     let phase = 0;
     let elapsed = 0;
@@ -1571,6 +1684,8 @@ export function createDreamRoom(mount, handlers) {
             setStatus(message);
     };
     const startAction = (action) => {
+        if (currentView !== "ground")
+            setView("ground");
         controls.autoRotate = false;
         if (action === "piano")
             ensureAudio();
@@ -1618,7 +1733,7 @@ export function createDreamRoom(mount, handlers) {
         studyDesk.pencil.visible = true;
         doorTarget = 0;
         setActive("idle");
-        setStatus(IDLE_STATUS);
+        setStatus(VIEW_STATUS[currentView]);
         const next = queued;
         queued = null;
         if (next)
@@ -1658,6 +1773,8 @@ export function createDreamRoom(mount, handlers) {
         setStatus(legoTarget > 0.5 ? "哗啦——积木散了一琴盖" : "积木被一块块搭了回去");
     };
     const hitAt = (event) => {
+        if (currentView !== "ground")
+            return null;
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1678,7 +1795,7 @@ export function createDreamRoom(mount, handlers) {
         renderer.domElement.style.cursor = action ? "pointer" : "grab";
         if (state !== "idle")
             return;
-        setStatus((action && HINTS[action]) ?? IDLE_STATUS);
+        setStatus((action && HINTS[action]) ?? VIEW_STATUS[currentView]);
     };
     const onDown = (event) => {
         pointerStart.set(event.clientX, event.clientY);
@@ -1725,6 +1842,12 @@ export function createDreamRoom(mount, handlers) {
         const dt = Math.min(timer.getDelta(), 0.05);
         elapsed += dt;
         phase += dt;
+        if (cameraTravel < 1) {
+            cameraTravel = Math.min(1, cameraTravel + dt / 1.05);
+            const travel = ease(cameraTravel);
+            camera.position.lerpVectors(cameraFrom, cameraTo, travel);
+            controls.target.lerpVectors(targetFrom, targetTo, travel);
+        }
         resetPose(girl, 0.12);
         girl.torso.scale.set(1, 1, 1);
         piano.keys.forEach((key) => {
@@ -2120,8 +2243,8 @@ export function createDreamRoom(mount, handlers) {
         const openness = THREE.MathUtils.clamp(Math.abs(doorHinge.rotation.y) / (Math.PI * 0.52), 0, 1);
         doorShaftMaterial.opacity = openness * 0.34;
         // Cut away whichever wall the camera has gone behind.
-        room.leftWall.visible = camera.position.x > -6.4;
-        room.backWall.visible = camera.position.z > -5.35;
+        room.leftWall.visible = currentView !== "ground" || camera.position.x > -6.4;
+        room.backWall.visible = currentView !== "ground" || camera.position.z > -5.35;
         studyDesk.bulbGlow.material.opacity = 0.5 + Math.sin(elapsed * 2.6) * 0.06;
         if (legoAmount !== legoTarget) {
             const step = dt / 1.15;
@@ -2193,5 +2316,5 @@ export function createDreamRoom(mount, handlers) {
         renderer.dispose();
         mount.removeChild(renderer.domElement);
     };
-    return { act: startAction, reset, dispose };
+    return { act: startAction, setView, reset, dispose };
 }

@@ -1,12 +1,17 @@
-# Dream Room
+# Dream House
 
-An interactive 3D room, rendered in the browser with
+An interactive two-storey dream house, rendered in the browser with
 [three.js](https://threejs.org/). Drag to look around, scroll to zoom, and click
 a piece of the room to watch the girl live out that part of the dream: climb the
 tree and swing a 360 off the branch, open the door and dive into the sea beyond
 it — where she floats in a swim ring for a while before paddling back, climbing
 out and walking home — sit down and play a short melody, or settle at the desk
 to read and write.
+
+Switch between the complete cottage, the original ground-floor cutaway, and an
+empty upper floor reserved for a future chapter. The exterior is a procedural
+storybook house with warm plaster, a stone base, timber framing, flower boxes,
+a steep tiled roof and chimney; the sea door remains on the rear elevation.
 
 Click the floor and she walks there; click the pile of LEGO on the piano lid
 and it builds itself into a tower, or comes apart across the lid. The
@@ -20,9 +25,11 @@ or CDN — no models, no image textures, no fonts.
 
 ## How the room is made
 
-- `app/scene.ts` builds the geometry, the animation state machine, the raycast
+- `app/scene.ts` builds the room geometry, the animation state machine, the raycast
   interaction, and the Web Audio melody. It is plain TypeScript with no
   framework imports, so the same module drives both builds below.
+- `app/house.ts` builds the exterior shell, garden, empty upper floor and the
+  three house/floor cutaway views.
 - `app/textures.ts` paints every material into a canvas: oak boards with grain,
   knots and routed seams; troweled plaster; loop-pile wool; bark fissures; leaf
   clusters; linen, denim twill, ribbed knit and pebbled leather; laid paper and
@@ -47,8 +54,8 @@ This repository serves two purposes.
   `docs/vendor/three/`, so the page makes no external network calls, and it
   falls back to an explanatory message when WebGL is unavailable.
 
-`docs/scene.js` and `docs/textures.js` are **generated files** — they are
-`app/scene.ts` and `app/textures.ts` with the types stripped. Edit the
+`docs/scene.js`, `docs/house.js` and `docs/textures.js` are **generated files** —
+they are the matching files under `app/` with the types stripped. Edit the
 TypeScript and run `npm run build:pages`; never hand-edit the JavaScript. That
 keeps the published page from drifting away from the source.
 
