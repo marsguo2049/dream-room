@@ -503,6 +503,113 @@ export function createSurfaceFactory(anisotropy: number) {
     return resolve(painting, 1, 0.55);
   };
 
+  /**
+   * Pressed fish-scale roof tiles under a translucent glaze.
+   *
+   * The roof remains two inexpensive moulded slabs; the overlapping courses
+   * live in the normal and roughness maps instead of returning as dozens of
+   * separate shadow-casting meshes.
+   */
+  const ceramicRoofGlaze = (): Surface => {
+    const painting = painter(512);
+    const { size, color, height, rough } = painting;
+    fill(painting, "#f1ece6", "#8c8c8c", "#666666");
+
+    mottle(color, size, 22, ["rgba(255,255,255,0.14)", "rgba(116,96,80,0.12)"], [45, 135], 1231);
+    mottle(rough, size, 20, ["rgba(0,0,0,0.22)", "rgba(255,255,255,0.16)"], [38, 120], 1237);
+
+    const tileWidth = 96;
+    const course = 66;
+    for (let row = -1; row < Math.ceil(size / course) + 1; row += 1) {
+      const top = row * course;
+      const offset = row % 2 === 0 ? 0 : tileWidth / 2;
+      for (let x = -tileWidth; x < size + tileWidth; x += tileWidth) {
+        const left = x + offset;
+        const middle = left + tileWidth / 2;
+        const right = left + tileWidth;
+        const bottom = top + course * 0.82;
+        for (const [ctx, style, width] of [
+          [color, "rgba(63,47,37,0.34)", 4.2],
+          [height, "rgba(54,54,54,0.88)", 5.4],
+          [rough, "rgba(230,230,230,0.72)", 5.8],
+        ] as const) {
+          ctx.strokeStyle = style;
+          ctx.lineWidth = width;
+          ctx.lineJoin = "round";
+          ctx.beginPath();
+          ctx.moveTo(left, top);
+          ctx.lineTo(left, top + course * 0.34);
+          ctx.quadraticCurveTo(left + tileWidth * 0.08, bottom, middle, bottom);
+          ctx.quadraticCurveTo(right - tileWidth * 0.08, bottom, right, top + course * 0.34);
+          ctx.lineTo(right, top);
+          ctx.stroke();
+        }
+
+        height.strokeStyle = "rgba(188,188,188,0.7)";
+        height.lineWidth = 2.2;
+        height.beginPath();
+        height.moveTo(left + 5, top + course * 0.34);
+        height.quadraticCurveTo(left + tileWidth * 0.12, bottom - 5, middle, bottom - 5);
+        height.stroke();
+      }
+    }
+
+    speckle(color, size, 1000, 0.035, 1249);
+    return resolve(painting, 3.2, 1.25);
+  };
+
+  /**
+   * Hand-moulded fieldstone for the lower course and chimney.
+   *
+   * Irregular stones are embossed into one continuous ceramic band. This
+   * matches the reference ornament while retaining the recent geometry and
+   * draw-call savings.
+   */
+  const ceramicStoneGlaze = (): Surface => {
+    const painting = painter(512);
+    const { size, color, height, rough } = painting;
+    fill(painting, "#d8cec2", "#727272", "#8c8c8c");
+    const random = rng(1259);
+    const rowHeight = 92;
+
+    for (let row = -1; row < 7; row += 1) {
+      const cy = row * rowHeight + rowHeight / 2;
+      const offset = row % 2 === 0 ? -58 : 0;
+      let x = offset - 70;
+      while (x < size + 80) {
+        const width = 82 + random() * 58;
+        const heightSize = 54 + random() * 24;
+        const cx = x + width / 2;
+        const wobble = 5 + random() * 8;
+
+        for (const [ctx, fillStyle, strokeStyle, lineWidth] of [
+          [color, "rgba(255,255,255,0.1)", "rgba(58,43,33,0.5)", 6],
+          [height, "rgba(166,166,166,0.92)", "rgba(42,42,42,0.94)", 7],
+          [rough, "rgba(104,104,104,0.8)", "rgba(232,232,232,0.92)", 7],
+        ] as const) {
+          ctx.fillStyle = fillStyle;
+          ctx.strokeStyle = strokeStyle;
+          ctx.lineWidth = lineWidth;
+          ctx.lineJoin = "round";
+          ctx.beginPath();
+          ctx.moveTo(cx - width / 2 + wobble, cy - heightSize * 0.28);
+          ctx.quadraticCurveTo(cx - width * 0.2, cy - heightSize / 2 - wobble * 0.25, cx + width * 0.34, cy - heightSize * 0.35);
+          ctx.quadraticCurveTo(cx + width / 2 + wobble * 0.2, cy, cx + width * 0.36, cy + heightSize * 0.36);
+          ctx.quadraticCurveTo(cx, cy + heightSize / 2 + wobble * 0.18, cx - width * 0.4, cy + heightSize * 0.3);
+          ctx.quadraticCurveTo(cx - width / 2 - wobble * 0.15, cy, cx - width / 2 + wobble, cy - heightSize * 0.28);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        x += width - 2;
+      }
+    }
+
+    mottle(color, size, 18, ["rgba(255,255,255,0.1)", "rgba(95,72,54,0.12)"], [35, 100], 1277);
+    speckle(color, size, 1300, 0.04, 1283);
+    return resolve(painting, 2.15, 1.65);
+  };
+
   /** Ribbed knit for the socks. */
   const knit = (): Surface => {
     const painting = painter(256);
@@ -821,6 +928,8 @@ export function createSurfaceFactory(anisotropy: number) {
     denim,
     knit,
     ceramicGlaze,
+    ceramicRoofGlaze,
+    ceramicStoneGlaze,
     leather,
     paper,
     sand,

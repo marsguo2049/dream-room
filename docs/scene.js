@@ -155,23 +155,23 @@ function createPalette(surfaces) {
     const soft = (x) => new THREE.Vector2(x, x);
     /**
      * The house is a glazed ceramic ornament, so every part of it is the same
-     * fired clay under the same glaze — only the colour of the glaze changes.
-     * Sharing one surface and one set of feature flags means the whole cottage
-     * also compiles down to a single shader program.
+     * fired clay under the same glaze. Roof and stone variants only change the
+     * stamped relief maps, so the latest low-draw-call shell stays intact.
      *
-     * `gloss` is the one dial worth turning: 1 is a wet, fully vitrified glaze,
-     * and 0 is bisque — unglazed, chalky, the way the foot of a real piece is
-     * left bare so it does not fuse to the kiln shelf.
+     * `gloss` is the one dial worth turning: 1 is fully vitrified and 0 is
+     * bisque. Even the brightest finish is kept satin, like an aged ornament,
+     * rather than the mirror-wet glaze used by the previous palette.
      */
     const glazeSurface = surfaces.ceramicGlaze();
-    const glazed = (color, gloss = 1, roughness = 0.44) => {
+    const roofGlazeSurface = surfaces.ceramicRoofGlaze();
+    const stoneGlazeSurface = surfaces.ceramicStoneGlaze();
+    const glazed = (color, gloss = 1, roughness = 0.44, surface = glazeSurface) => {
         const shared = {
-            ...glazeSurface,
+            ...surface,
             color,
-            // Barely there. Porcelain reads smooth; the relief is in the roughness.
-            normalScale: soft(0.16 + (1 - gloss) * 0.3),
+            normalScale: soft(surface === glazeSurface ? 0.16 + (1 - gloss) * 0.3 : 0.58),
             roughness,
-            envMapIntensity: 0.85 + gloss * 0.5,
+            envMapIntensity: 0.72 + gloss * 0.34,
         };
         // Below about a third there is no glaze left to see, and the clearcoat
         // lobe is pure cost — it measures at roughly a tenth of the frame, and
@@ -181,8 +181,8 @@ function createPalette(surfaces) {
             return new THREE.MeshStandardMaterial(shared);
         return new THREE.MeshPhysicalMaterial({
             ...shared,
-            clearcoat: gloss,
-            clearcoatRoughness: 0.07 + (1 - gloss) * 0.5,
+            clearcoat: gloss * 0.84,
+            clearcoatRoughness: 0.15 + (1 - gloss) * 0.42,
         });
     };
     return {
@@ -331,39 +331,34 @@ function createPalette(surfaces) {
             clearcoatRoughness: 0.24,
             envMapIntensity: 0.9,
         }),
-        // Warm cream body, the colour of tin-glazed earthenware. The two storeys
-        // differ by a shade rather than by a material, so the house reads as one
-        // piece that came out of one kiln.
-        housePlaster: glazed(0xf0d9bd, 1, 0.4),
-        housePlasterLight: glazed(0xf7e7d2, 1, 0.38),
-        // The framing is a painted-on glaze line, not timber: a warm grey-brown
-        // laid over the cream, slightly less vitrified so it stays readable.
-        houseTimber: glazed(0xbe9075, 0.9, 0.42),
-        // The base course is left as bisque — unglazed, matte, faintly chalky.
-        // A ceramic piece almost always has one, and it is what stops the whole
-        // cottage from looking like moulded plastic.
-        houseStone: glazed(0xd8c6b2, 0.12, 0.82),
-        // A deep glazed teal for the roof, pooling darker at the seams. The
-        // strongest colour on the piece, the way a maker would place it.
-        roofTile: glazed(0x3f7d84, 1, 0.34),
-        roofEdge: glazed(0x2d5f6a, 1, 0.3),
+        // Burnt-orange walls, earthy roof and chocolate framing sampled from the
+        // supplied ornament. The two floors vary only slightly, as in hand-fired
+        // glaze rather than separate painted storeys.
+        housePlaster: glazed(0xe07424, 0.82, 0.4),
+        housePlasterLight: glazed(0xe87c28, 0.8, 0.42),
+        houseTimber: glazed(0x593b2b, 0.68, 0.5),
+        // Raised fieldstone and fish-scale tiles are texture relief on the same
+        // continuous moulded bands and roof slabs — no geometry cost is restored.
+        houseStone: glazed(0x976c49, 0.5, 0.58, stoneGlazeSurface),
+        roofTile: glazed(0x98745a, 0.72, 0.46, roofGlazeSurface),
+        roofEdge: glazed(0x684735, 0.66, 0.48, roofGlazeSurface),
         // Not glass: a pane of pale glaze, the way a ceramic house has its windows
         // painted on and fired rather than glazed open. Opaque on purpose — it
         // costs nothing to sort and it is closer to the object being imitated.
-        windowGlass: glazed(0xbcdadd, 1, 0.16),
+        windowGlass: glazed(0x756f69, 0.66, 0.34),
         // The mullions and the arch, in the white a maker reaches for to outline
         // an opening.
-        houseTrim: glazed(0xfbf5ea, 1, 0.3),
-        houseDoor: glazed(0x3f7d84, 1, 0.26),
+        houseTrim: glazed(0xe8dfcb, 0.72, 0.4),
+        houseDoor: glazed(0x75472e, 0.68, 0.4),
         // The base the ornament stands on: a soft matte glaze, so the lawn reads
         // as part of the same object rather than as ground the house sits in.
-        garden: glazed(0x8fa878, 0.3, 0.68),
-        pathStone: glazed(0xe0d3bd, 0.5, 0.5),
+        garden: glazed(0x6f8053, 0.3, 0.7),
+        pathStone: glazed(0xb49372, 0.45, 0.56, stoneGlazeSurface),
         // Glazed foliage and flowers — saturated, wet-looking, deliberately
         // simple. This is where a ceramic maker puts the gloss.
-        flowerLeaf: glazed(0x5f8757, 1, 0.36),
-        flowerRed: glazed(0xd25c4a, 1, 0.28),
-        flowerCream: glazed(0xfaf0d8, 1, 0.28),
+        flowerLeaf: glazed(0x527449, 0.76, 0.42),
+        flowerRed: glazed(0xc84832, 0.82, 0.34),
+        flowerCream: glazed(0xe9dfc3, 0.75, 0.38),
         interiorWall: new THREE.MeshStandardMaterial({
             ...plasterSurface,
             color: 0xf4eadb,
