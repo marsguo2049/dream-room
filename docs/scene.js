@@ -1277,20 +1277,34 @@ function buildSwimRing(parent) {
  * crawl, which is not something you do while sitting in a ring.
  */
 function setPaddlePose(rig, clock, effort = 1) {
-    const stroke = clock * 2.4 * effort;
-    rig.leftArm.pivot.rotation.z = 0.92 + Math.sin(stroke) * 0.2;
-    rig.rightArm.pivot.rotation.z = -0.92 - Math.sin(stroke + Math.PI) * 0.2;
-    rig.leftArm.pivot.rotation.x = -0.2 + Math.sin(stroke) * 0.5;
-    rig.rightArm.pivot.rotation.x = -0.2 + Math.sin(stroke + Math.PI) * 0.5;
-    rig.leftArm.lower.rotation.x = 0.3 + Math.max(0, Math.sin(stroke)) * 0.55;
-    rig.rightArm.lower.rotation.x = 0.3 + Math.max(0, Math.sin(stroke + Math.PI)) * 0.55;
-    const kick = clock * 4.1 * effort;
-    rig.leftLeg.pivot.rotation.x = -0.52 + Math.sin(kick) * 0.3;
-    rig.rightLeg.pivot.rotation.x = -0.52 + Math.sin(kick + Math.PI) * 0.3;
-    rig.leftLeg.lower.rotation.x = 0.6 + Math.max(0, Math.sin(kick)) * 0.28;
-    rig.rightLeg.lower.rotation.x = 0.6 + Math.max(0, Math.sin(kick + Math.PI)) * 0.28;
-    rig.torso.rotation.x = 0.07 + Math.sin(clock * 1.9) * 0.03;
-    rig.head.rotation.x = -0.06;
+    const stroke = clock * 1.9 * effort;
+    const sweep = Math.sin(stroke);
+    // Out from the body, clear of the ring. A *positive* Z on the left shoulder
+    // swings that arm across the chest — the old pose used +0.92 on the left and
+    // -0.92 on the right, so both arms were folded over the midline, crossed in
+    // front of her, while they waved.
+    rig.leftArm.pivot.rotation.z = -0.52;
+    rig.rightArm.pivot.rotation.z = 0.52;
+    // Sculling is a horizontal sweep at the shoulder — the hands push water out
+    // and back — not a flap in the sagittal plane, which is all the old pose had.
+    // Both shoulders take the same yaw: because the arms are abducted in
+    // opposite directions it drives them opposite ways, which is the alternation.
+    rig.leftArm.pivot.rotation.y = sweep * 0.42;
+    rig.rightArm.pivot.rotation.y = sweep * 0.42;
+    // A little lift on the recovery, out of phase between the arms.
+    rig.leftArm.pivot.rotation.x = -0.34 + sweep * 0.16;
+    rig.rightArm.pivot.rotation.x = -0.34 - sweep * 0.16;
+    // Elbows stay bent forward all through the stroke, so the forearms lie in
+    // the water in front of her rather than folding back behind the ring.
+    rig.leftArm.lower.rotation.x = -(0.8 + Math.max(0, sweep) * 0.3);
+    rig.rightArm.lower.rotation.x = -(0.8 + Math.max(0, -sweep) * 0.3);
+    const kick = clock * 3.4 * effort;
+    rig.leftLeg.pivot.rotation.x = -0.52 + Math.sin(kick) * 0.26;
+    rig.rightLeg.pivot.rotation.x = -0.52 + Math.sin(kick + Math.PI) * 0.26;
+    rig.leftLeg.lower.rotation.x = 0.6 + Math.max(0, Math.sin(kick)) * 0.24;
+    rig.rightLeg.lower.rotation.x = 0.6 + Math.max(0, Math.sin(kick + Math.PI)) * 0.24;
+    rig.torso.rotation.x = 0.06 + Math.sin(clock * 1.7) * 0.03;
+    rig.head.rotation.x = -0.05;
 }
 function setWalkPose(rig, clock, amount = 1) {
     const cycle = clock * 6.65;
