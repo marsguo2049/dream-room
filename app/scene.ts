@@ -477,6 +477,13 @@ function createPalette(surfaces: SurfaceFactory) {
       envMapIntensity: 0.4,
     }),
     dark: new THREE.MeshStandardMaterial({ color: 0x34271f, roughness: 0.8, envMapIntensity: 0.4 }),
+    pencil: new THREE.MeshPhysicalMaterial({
+      color: 0xe8b23c,
+      roughness: 0.42,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.25,
+      envMapIntensity: 0.8,
+    }),
     eyeWhite: new THREE.MeshPhysicalMaterial({
       color: 0xfffbf4,
       roughness: 0.16,
@@ -1025,6 +1032,25 @@ function buildPiano(scene: THREE.Scene, palette: Palette, interactive: THREE.Obj
   return { piano, keys, lego };
 }
 
+/**
+ * A pencil: yellow barrel, graphite tip. Both copies — the one lying on the
+ * desk and the one in her hand — are built here, so they cannot drift apart in
+ * colour or size the way they had.
+ */
+function buildPencil(palette: Palette) {
+  const pencil = new THREE.Group();
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.019, 0.3, 12), palette.pencil);
+  barrel.castShadow = true;
+  barrel.receiveShadow = true;
+  pencil.add(barrel);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.019, 0.06, 12), palette.dark);
+  tip.position.y = -0.18;
+  tip.rotation.x = Math.PI;
+  tip.castShadow = true;
+  pencil.add(tip);
+  return pencil;
+}
+
 function buildDesk(
   scene: THREE.Scene,
   palette: Palette,
@@ -1079,8 +1105,10 @@ function buildDesk(
   addBox(desk, [0.34, 0.12, 0.7], [-0.98, 1.48, -0.08], green, 0.025);
   addBox(desk, [0.3, 0.1, 0.66], [-0.94, 1.59, -0.08], cream, 0.025);
 
-  const pencil = addCylinder(desk, 0.025, 0.025, 0.62, [0.42, 1.38, 0.25], metal, 12);
+  const pencil = buildPencil(palette);
+  pencil.position.set(0.42, 1.38, 0.25);
   pencil.rotation.z = Math.PI / 2;
+  desk.add(pencil);
   const lampStem = addCylinder(desk, 0.045, 0.065, 0.86, [1.12, 1.75, -0.34], metal, 16);
   lampStem.rotation.z = -0.18;
   addCylinder(desk, 0.28, 0.34, 0.12, [1.12, 1.3, -0.34], metal, 24);
@@ -1126,7 +1154,13 @@ type GirlRig = {
   rightArm: Limb;
   leftLeg: Limb;
   rightLeg: Limb;
-  rightHand: THREE.Group;
+  /**
+   * Her anatomical right hand — which is the limb this file calls `leftArm`.
+   * Facing +Z with +Y up, a character's own right is at -X, so the left/right
+   * names on the limbs are mirrored from the body's. Exposed under an
+   * unambiguous name so the writing hand cannot be picked wrongly again.
+   */
+  writingHand: THREE.Group;
   ponytails: THREE.Group[];
 };
 
@@ -1534,12 +1568,12 @@ function buildGirl(scene: THREE.Scene, palette: Palette): GirlRig {
   const leftLeg = buildLimb(root, [-BODY.hipX, BODY.hipY, 0], BODY.upperLeg, BODY.lowerLeg, BODY.legRadius, skin);
   const rightLeg = buildLimb(root, [BODY.hipX, BODY.hipY, 0], BODY.upperLeg, BODY.lowerLeg, BODY.legRadius, skin);
 
-  addHand(leftArm, -1, BODY.lowerArm, palette);
-  const rightHand = addHand(rightArm, 1, BODY.lowerArm, palette);
+  const writingHand = addHand(leftArm, -1, BODY.lowerArm, palette);
+  addHand(rightArm, 1, BODY.lowerArm, palette);
   addFoot(leftLeg, BODY.lowerLeg, palette);
   addFoot(rightLeg, BODY.lowerLeg, palette);
 
-  return { root, torso, head, eyes, leftArm, rightArm, leftLeg, rightLeg, rightHand, ponytails };
+  return { root, torso, head, eyes, leftArm, rightArm, leftLeg, rightLeg, writingHand, ponytails };
 }
 
 function makeDust(scene: THREE.Scene, sprite: THREE.Texture) {
@@ -1839,22 +1873,11 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
   // A second pencil, parented to her hand. Swapping which of the two is
   // visible is what guarantees the pencil never drifts away from her fingers:
   // while she writes, the one you see *is* a child of the hand.
-  const pencilWood = new THREE.MeshPhysicalMaterial({
-    color: 0xe8b23c,
-    roughness: 0.42,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.25,
-    envMapIntensity: 0.8,
-  });
-  const heldPencil = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.021, 0.016, 0.32, 12),
-    pencilWood,
-  );
-  heldPencil.position.set(0.01, -0.075, 0.035);
-  heldPencil.rotation.set(2.45, 0, 0.3);
-  heldPencil.castShadow = true;
+  const heldPencil = buildPencil(palette);
+  heldPencil.position.set(-0.01, -0.075, 0.035);
+  heldPencil.rotation.set(2.45, 0, -0.3);
   heldPencil.visible = false;
-  girl.rightHand.add(heldPencil);
+  girl.writingHand.add(heldPencil);
   const dust = makeDust(scene, glowFalloff);
 
   // Ambient occlusion under anything heavy, so nothing floats.
@@ -1930,9 +1953,10 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
   const surfaceAt = new THREE.Vector3();
   // Where her hands go while she works, in the rig root's space.
   const reachTarget = new THREE.Vector3();
-  const LAP_RIGHT = new THREE.Vector3(0.34, 1.06, 0.3);
-  const LAP_LEFT = new THREE.Vector3(-0.34, 1.06, 0.3);
-  const REST_LEFT = new THREE.Vector3(-0.3, 1.42, 0.55);
+  // `leftArm` is her right side, so the writing targets sit at negative x.
+  const LAP_WRITING = new THREE.Vector3(-0.34, 1.06, 0.3);
+  const LAP_RESTING = new THREE.Vector3(0.34, 1.06, 0.3);
+  const REST_HAND = new THREE.Vector3(0.3, 1.42, 0.55);
   let surfaceFacing = Math.PI;
   let audioContext: AudioContext | null = null;
 
@@ -2323,10 +2347,10 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
       girl.rightLeg.lower.rotation.x = Math.PI / 2 * p;
       // Hands travel from her lap up onto the desk, so the study pose is
       // arrived at rather than snapped to.
-      reachTarget.lerpVectors(LAP_RIGHT, new THREE.Vector3(0.1, 1.4, 0.68), p);
-      reachTo(girl.rightArm, reachTarget, BODY.upperArm, BODY.lowerArm);
-      reachTarget.lerpVectors(LAP_LEFT, REST_LEFT, p);
+      reachTarget.lerpVectors(LAP_WRITING, new THREE.Vector3(-0.1, 1.4, 0.68), p);
       reachTo(girl.leftArm, reachTarget, BODY.upperArm, BODY.lowerArm);
+      reachTarget.lerpVectors(LAP_RESTING, REST_HAND, p);
+      reachTo(girl.rightArm, reachTarget, BODY.upperArm, BODY.lowerArm);
       heldPencil.visible = p > 0.55;
       studyDesk.pencil.visible = p <= 0.55;
       girl.head.rotation.x = 0.2 * p;
@@ -2341,12 +2365,12 @@ export function createDreamRoom(mount: HTMLElement, handlers: DreamRoomHandlers)
       // The hand traces the writing; the pencil is in it, so the motion comes
       // from her arm instead of the pencil sliding around on its own.
       reachTarget.set(
-        0.1 + Math.sin(phase * 5.4) * 0.13,
+        -0.1 + Math.sin(phase * 5.4) * 0.13,
         1.4,
         0.68 + Math.sin(phase * 2.7) * 0.05,
       );
-      reachTo(girl.rightArm, reachTarget, BODY.upperArm, BODY.lowerArm);
-      reachTo(girl.leftArm, REST_LEFT, BODY.upperArm, BODY.lowerArm);
+      reachTo(girl.leftArm, reachTarget, BODY.upperArm, BODY.lowerArm);
+      reachTo(girl.rightArm, REST_HAND, BODY.upperArm, BODY.lowerArm);
       heldPencil.visible = true;
       studyDesk.pencil.visible = false;
       girl.torso.rotation.x = 0.1;
