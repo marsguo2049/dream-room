@@ -74,17 +74,17 @@ function buildWindow(parent, palette, position, size, rotationY = 0, flowers = f
     return window;
 }
 /**
- * The unglazed foot the whole ornament stands on.
+ * The embossed fieldstone foot the whole ornament stands on.
  *
  * This was a course of individually laid rubble stones — thirty-odd little
  * boxes with random rotations. That is how a mason works, and it is exactly
  * what a moulded ceramic piece never looks like: the base of a glazed cottage
- * comes out of the same mould as the walls, so it is one continuous band with
- * a soft shoulder where the glaze line stops. One skirt, four sides, and a
- * capping bead, instead of thirty stones.
+ * comes out of the same mould as the walls, so it is one continuous band
+ * carrying a relief texture. One skirt, four sides, and a capping bead,
+ * instead of thirty separate stone meshes.
  */
 function buildFoot(parent, palette) {
-    const height = 1.42;
+    const height = 1.82;
     const out = 0.22;
     const front = HOUSE_HALF_Z + out;
     const span = HOUSE_HALF_X * 2 + out * 2;
@@ -148,7 +148,7 @@ function buildRoof(parent, palette) {
     const chimney = new THREE.Group();
     chimney.position.set(-4.35, 11.9, -1.55);
     roof.add(chimney);
-    addBox(chimney, [1.25, 3.2, 1.18], [0, 0, 0], palette.housePlaster, 0.28);
+    addBox(chimney, [1.25, 3.2, 1.18], [0, 0, 0], palette.houseStone, 0.28);
     addBox(chimney, [1.52, 0.34, 1.46], [0, 1.63, 0], palette.roofEdge, 0.15);
     return roof;
 }
@@ -209,6 +209,17 @@ export function buildDreamHouse(scene, palette) {
     lowerExterior.add(arch);
     addBox(lowerExterior, [0.12, 3.08, 0.12], [-1.18, 1.62, HOUSE_HALF_Z + 0.34], palette.houseTrim, 0.03);
     addBox(lowerExterior, [0.12, 3.08, 0.12], [1.18, 1.62, HOUSE_HALF_Z + 0.34], palette.houseTrim, 0.03);
+    // The original cottage's small red heart is its most recognisable hand-
+    // painted detail, kept as one flat glazed mesh against the brown door.
+    const heartShape = new THREE.Shape();
+    heartShape.moveTo(0, -0.24);
+    heartShape.bezierCurveTo(-0.48, 0.02, -0.44, 0.42, 0, 0.2);
+    heartShape.bezierCurveTo(0.44, 0.42, 0.48, 0.02, 0, -0.24);
+    const heart = new THREE.Mesh(new THREE.ShapeGeometry(heartShape, 8), palette.flowerRed);
+    heart.position.set(0, 1.72, HOUSE_HALF_Z + 0.35);
+    heart.scale.setScalar(0.62);
+    heart.castShadow = true;
+    lowerExterior.add(heart);
     addSphere(lowerExterior, 0.11, [0.65, 1.64, HOUSE_HALF_Z + 0.4], palette.brass, [1, 1, 0.58]);
     const upperBackLeft = new THREE.Group();
     const upperCutaway = new THREE.Group();
