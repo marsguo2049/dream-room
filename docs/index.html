@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dream Room · 有树、钢琴与海之门的三维房间</title>
-    <meta name="description" content="Dream Room 是一间可以在浏览器里走进去的三维房间：拖拽换视角，点树看女孩爬上去做单杠，点门跟她一起跳进海里，点钢琴听一段旋律，点书桌陪她读书。">
+    <title>Dream House · 有树、钢琴与海之门的两层梦境小屋</title>
+    <meta name="description" content="Dream House 是一栋可以切换外观、一楼与二楼的三维童话小屋：一楼保留树、女孩、钢琴、书桌和通往大海的门，二楼等待下一段梦境。">
 
-    <meta property="og:title" content="Dream Room · 有树、钢琴与海之门的三维房间">
-    <meta property="og:description" content="点树爬上去做单杠，点门跳进海里，点钢琴听一段旋律，点书桌陪她读书。几何、贴图与光照全部由代码生成。">
+    <meta property="og:title" content="Dream House · 两层三维梦境小屋">
+    <meta property="og:description" content="从完整的童话屋切进一楼与空置二楼；点树、海之门、钢琴与书桌继续女孩的故事。">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://moltpany.github.io/dream-room/">
 
@@ -28,16 +28,16 @@
     <main class="dream-shell">
       <header class="dream-header">
         <a class="brand" href="https://moltpany.github.io/" aria-label="返回 Moltpany 首页">
-          DREAM<span>/ROOM</span>
+          DREAM<span>/HOUSE</span>
         </a>
         <div class="header-links">
-          <span class="chapter">CHAPTER 01 · THE TREE &amp; THE SEA</span>
+          <span class="chapter">HOUSE 01 · THE TREE &amp; THE SEA</span>
           <a href="https://moltpany.github.io/">← Moltpany</a>
           <a href="https://github.com/moltpany/dream-room" rel="noopener">源码</a>
         </div>
       </header>
 
-      <section class="scene-card" aria-label="一间有树、女孩、钢琴、书桌和海之门的可交互三维房间">
+      <section class="scene-card" aria-label="一栋可以切换外观、一楼与二楼的可交互三维梦境小屋">
         <div id="scene-mount" class="scene-mount"></div>
 
         <div id="scene-fallback" class="scene-fallback" hidden>
@@ -46,8 +46,14 @@
         </div>
 
         <div class="room-title">
-          <span>梦境房间 / 01</span>
-          <strong>Some doors open into the sea.</strong>
+          <span id="view-eyebrow">梦境小屋 / HOUSE</span>
+          <strong id="view-title">A little house can hold a whole world.</strong>
+        </div>
+
+        <div class="view-switcher" aria-label="小屋视角">
+          <button class="is-active" data-view="house"><small>HOUSE</small><span>整栋小屋</span></button>
+          <button data-view="ground"><small>ROOM 01</small><span>一楼</span></button>
+          <button data-view="upper"><small>ROOM 02</small><span>空置二楼</span></button>
         </div>
 
         <div class="story-actions" aria-label="互动选择">
@@ -96,6 +102,14 @@
       const fallback = document.getElementById("scene-fallback");
       const statusLine = document.getElementById("interaction-status");
       const buttons = [...document.querySelectorAll(".story-actions button")];
+      const viewButtons = [...document.querySelectorAll(".view-switcher button")];
+      const viewEyebrow = document.getElementById("view-eyebrow");
+      const viewTitle = document.getElementById("view-title");
+      const viewTitles = {
+        house: ["梦境小屋 / HOUSE", "A little house can hold a whole world."],
+        ground: ["梦境房间 / 01", "Some doors open into the sea."],
+        upper: ["梦境房间 / 02", "An empty room, waiting for its dream."],
+      };
 
       // WebGL is the one hard requirement; say so plainly rather than
       // leaving an empty grey rectangle behind.
@@ -121,11 +135,21 @@
               button.classList.toggle("is-active", button.dataset.action === action);
             }
           },
+          onView: (view) => {
+            for (const button of viewButtons) {
+              button.classList.toggle("is-active", button.dataset.view === view);
+            }
+            viewEyebrow.textContent = viewTitles[view][0];
+            viewTitle.textContent = viewTitles[view][1];
+          },
         });
 
         statusLine.textContent = IDLE_STATUS;
         for (const button of buttons) {
           button.addEventListener("click", () => room.act(button.dataset.action));
+        }
+        for (const button of viewButtons) {
+          button.addEventListener("click", () => room.setView(button.dataset.view));
         }
         document.getElementById("reset-button").addEventListener("click", () => room.reset());
       }
